@@ -58,8 +58,10 @@ obj/Debug/net6.0/
  LilithsCookbook.AssemblyInfo.cs
  LilithsCookbook.GlobalUsings.g.cs
  MyPluginInfo.cs
+Plugin.cs
 
 [metadataReferences]
+../LilithsHeart/obj/Debug/net6.0/ref/LilithsHeart.dll
 <NUGET>/
  asmresolver.dotnet/6.0.0-beta.1/lib/net6.0/AsmResolver.DotNet.dll
  asmresolver.pe.file/6.0.0-beta.1/lib/net6.0/AsmResolver.PE.File.dll

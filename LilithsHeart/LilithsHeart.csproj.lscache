@@ -60,7 +60,10 @@ obj/Debug/net6.0/
  LilithsHeart.GlobalUsings.g.cs
  MyPluginInfo.cs
 Plugin.cs
-Resources/Prefabs/Items.cs
+Resources/Prefabs/
+ Items.cs
+ Recipes.cs
+ Stations.cs
 
 [metadataReferences]
 <NUGET>/
