@@ -30,6 +30,10 @@ internal static class Core
     public static PrefabCollectionSystem PrefabCollectionSystem
         => Server.GetExistingSystemManaged<PrefabCollectionSystem>();
 
+    // Added: GameDataSystem for registering recipe and item changes
+    public static GameDataSystem GameDataSystem
+        => Server.GetExistingSystemManaged<GameDataSystem>();
+
     static bool _initialized;
     public static bool IsReady => _initialized;
 
