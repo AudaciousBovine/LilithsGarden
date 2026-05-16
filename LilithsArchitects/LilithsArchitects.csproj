@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LilithsArchitects</AssemblyName>
+    <Version>0.1.0</Version>
+    <BepInExPluginGuid>audaciousbovine.lilithsarchitects</BepInExPluginGuid>
+  </PropertyGroup>
+</Project>

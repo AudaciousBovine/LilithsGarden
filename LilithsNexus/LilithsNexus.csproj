@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LilithsNexus</AssemblyName>
+    <Version>0.1.0</Version>
+    <BepInExPluginGuid>audaciousbovine.lilithsnexus</BepInExPluginGuid>
+  </PropertyGroup>
+</Project>
