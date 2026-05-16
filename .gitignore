@@ -427,3 +427,15 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Game References
+**/Managed/
+**/BepInEx/
+**/Libs/
+**/GameLibs/
+
+# VS Code
+.vscode/
+
+# Local config
+local.settings.json
