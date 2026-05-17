@@ -1,114 +1,32 @@
 {
-  "-1107784271": {
-    "OriginalName": "TM_CraftingStation_SimpleCraftingBench",
-    "NewName": "SimpleWorkbench"
-  },
-  "-332123372": {
-    "OriginalName": "TM_CraftingStation_WoodworkingBench",
-    "NewName": "WoodworkingBench"
-  },
-  "1779320855": {
-    "OriginalName": "TM_CraftingStation_Leatherworking",
-    "NewName": "LeatherworkingStation"
-  },
-  "-1718710437": {
-    "OriginalName": "TM_CraftingStation_ArtisanTable",
-    "NewName": "ArtisanTable"
-  },
-  "508953830": {
-    "OriginalName": "TM_CraftingStation_JewelcraftingTable",
-    "NewName": "JewelcraftingTable"
-  },
-  "-952755594": {
-    "OriginalName": "TM_CraftingStation_TailorBench",
-    "NewName": "TailoringBench"
-  },
-  "181938440": {
-    "OriginalName": "TM_CraftingStation_AlchemyLab_Small",
-    "NewName": "AlchemyTable"
-  },
-  "-1840926436": {
-    "OriginalName": "TM_CraftingStation_Smithy",
-    "NewName": "Smithy"
-  },
-  "-437790980": {
-    "OriginalName": "TM_CraftingStation_Anvil",
-    "NewName": "Anvil"
-  },
-  "1094077710": {
-    "OriginalName": "TM_RefinementStation_Sawmill_Small",
-    "NewName": "Sawmill"
-  },
-  "-163562336": {
-    "OriginalName": "TM_RefinementStation_Sawmill_Large",
-    "NewName": "AdvancedSawmill"
-  },
-  "-600683642": {
-    "OriginalName": "TM_RefinementStation_StonecuttingTable_Small",
-    "NewName": "Grinder"
-  },
-  "-178579946": {
-    "OriginalName": "TM_RefinementStation_StonecuttingTable_Large",
-    "NewName": "AdvancedGrinder"
-  },
-  "-1150411622": {
-    "OriginalName": "TM_RefinementStation_Furnace_Small",
-    "NewName": "Furnace"
-  },
-  "-222851985": {
-    "OriginalName": "TM_RefinementStation_Furnace_Large",
-    "NewName": "AdvancedFurnace"
-  },
-  "-300823465": {
-    "OriginalName": "TM_RefinementStation_BloodPress_Small",
-    "NewName": "BloodPress"
-  },
-  "-684391635": {
-    "OriginalName": "TM_RefinementStation_BloodPress_Large",
-    "NewName": "AdvancedBloodPress"
-  },
-  "-635885386": {
-    "OriginalName": "TM_RefinementStation_Tannery_Small",
-    "NewName": "Tannery"
-  },
-  "-1422196107": {
-    "OriginalName": "TM_RefinementStation_Tannery_Large",
-    "NewName": "AdvancedTannery"
-  },
-  "-16328955": {
-    "OriginalName": "TM_RefinementStation_Loom_Small",
-    "NewName": "Loom"
-  },
-  "1299929048": {
-    "OriginalName": "TM_RefinementStation_Loom_Large",
-    "NewName": "AdvancedLoom"
-  },
-  "-1628971842": {
-    "OriginalName": "TM_RefinementStation_PaperPress_Small",
-    "NewName": "PaperPress"
-  },
-  "-21483617": {
-    "OriginalName": "TM_RefinementStation_GemCutting",
-    "NewName": "GemCuttingTable"
-  },
-  "-465055967": {
-    "OriginalName": "TM_RefinementStation_Fabricator",
-    "NewName": "Fabricator"
-  },
-  "-1719849142": {
-    "OriginalName": "TM_SalvageStation_Table",
-    "NewName": "Devourer"
-  },
-  "150776081": {
-    "OriginalName": "TM_UnitStation_VerminNest",
-    "NewName": "VerminNest"
-  },
-  "1127059420": {
-    "OriginalName": "TM_UnitStation_Tomb",
-    "NewName": "Tomb"
-  },
-  "-218354895": {
-    "OriginalName": "TM_UnitStation_NetherGate",
-    "NewName": "StygianSummoningCircle"
-  }
+  "-1107784271": { "NewName": "SimpleWorkbench", "OriginalName": "TM_CraftingStation_SimpleCraftingBench" },
+  "-332123372": { "NewName": "WoodworkingBench", "OriginalName": "TM_CraftingStation_WoodworkingBench" },
+  "1779320855": { "NewName": "LeatherworkingStation", "OriginalName": "TM_CraftingStation_Leatherworking" },
+  "-1718710437": { "NewName": "ArtisanTable", "OriginalName": "TM_CraftingStation_ArtisanTable" },
+  "508953830": { "NewName": "JewelcraftingTable", "OriginalName": "TM_CraftingStation_JewelcraftingTable" },
+  "-952755594": { "NewName": "TailoringBench", "OriginalName": "TM_CraftingStation_TailorBench" },
+  "181938440": { "NewName": "AlchemyTable", "OriginalName": "TM_CraftingStation_AlchemyLab_Small" },
+  "-1840926436": { "NewName": "Smithy", "OriginalName": "TM_CraftingStation_Smithy" },
+  "-437790980": { "NewName": "Anvil", "OriginalName": "TM_CraftingStation_Anvil" },
+
+  "1094077710": { "NewName": "Sawmill", "OriginalName": "TM_RefinementStation_Sawmill_Small" },
+  "-163562336": { "NewName": "AdvancedSawmill", "OriginalName": "TM_RefinementStation_Sawmill_Large" },
+  "-600683642": { "NewName": "Grinder", "OriginalName": "TM_RefinementStation_StonecuttingTable_Small" },
+  "-178579946": { "NewName": "AdvancedGrinder", "OriginalName": "TM_RefinementStation_StonecuttingTable_Large" },
+  "-1150411622": { "NewName": "Furnace", "OriginalName": "TM_RefinementStation_Furnace_Small" },
+  "-222851985": { "NewName": "AdvancedFurnace", "OriginalName": "TM_RefinementStation_Furnace_Large" },
+  "-300823465": { "NewName": "BloodPress", "OriginalName": "TM_RefinementStation_BloodPress_Small" },
+  "-684391635": { "NewName": "AdvancedBloodPress", "OriginalName": "TM_RefinementStation_BloodPress_Large" },
+  "-635885386": { "NewName": "Tannery", "OriginalName": "TM_RefinementStation_Tannery_Small" },
+  "-1422196107": { "NewName": "AdvancedTannery", "OriginalName": "TM_RefinementStation_Tannery_Large" },
+  "-16328955": { "NewName": "Loom", "OriginalName": "TM_RefinementStation_Loom_Small" },
+  "1299929048": { "NewName": "AdvancedLoom", "OriginalName": "TM_RefinementStation_Loom_Large" },
+  "-1628971842": { "NewName": "PaperPress", "OriginalName": "TM_RefinementStation_PaperPress_Small" },
+  "-21483617": { "NewName": "GemCuttingTable", "OriginalName": "TM_RefinementStation_GemCutting" },
+  "-465055967": { "NewName": "Fabricator", "OriginalName": "TM_RefinementStation_Fabricator" },
+  "-1719849142": { "NewName": "Devourer", "OriginalName": "TM_SalvageStation_Table" },
+
+  "150776081": { "NewName": "VerminNest", "OriginalName": "TM_UnitStation_VerminNest" },
+  "1127059420": { "NewName": "Tomb", "OriginalName": "TM_UnitStation_Tomb" },
+  "-218354895": { "NewName": "StygianSummoningCircle", "OriginalName": "TM_UnitStation_NetherGate" }
 }
