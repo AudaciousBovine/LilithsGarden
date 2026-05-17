@@ -1,7 +1,0 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <AssemblyName>LilithsAdversaries</AssemblyName>
-    <Version>0.1.0</Version>
-    <BepInExPluginGuid>audaciousbovine.lilithsadversaries</BepInExPluginGuid>
-  </PropertyGroup>
-</Project>
