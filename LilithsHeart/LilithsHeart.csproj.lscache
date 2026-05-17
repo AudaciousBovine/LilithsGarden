@@ -64,9 +64,12 @@ obj/Debug/net6.0/
 Patches/InitializationPatch.cs
 Plugin.cs
 Resources/Prefabs/
+ Equipment.cs
  Items.cs
  Recipes.cs
  Stations.cs
+ Unsorted.cs
+ Weapons.cs
 Systems/PrefabNameResolver.cs
 
 [metadataReferences]
