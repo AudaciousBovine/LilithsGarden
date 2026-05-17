@@ -31,23 +31,27 @@ internal static class Core
     public static PrefabCollectionSystem PrefabCollectionSystem
         => Server.GetExistingSystemManaged<PrefabCollectionSystem>();
 
-    // Added: GameDataSystem for registering recipe and item changes
     public static GameDataSystem GameDataSystem
         => Server.GetExistingSystemManaged<GameDataSystem>();
+
+    // Added: Event that fires when LilithsHeart has finished initializing
+    public static event Action? OnInitialized;
 
     static bool _initialized;
     public static bool IsReady => _initialized;
 
-internal static void OnInitialize()
-{
-    if (_initialized) return;
+    internal static void OnInitialize()
+    {
+        if (_initialized) return;
 
-    LilithsLogger.Info("LilithsHeart core initializing...");
+        LilithsLogger.Info("LilithsHeart core initializing...");
 
-    // Added: Initialize name resolver so modules can look up GUIDs by name
-    PrefabNameResolver.Initialize();
+        PrefabNameResolver.Initialize();
 
-    _initialized = true;
-    LilithsLogger.Info("LilithsHeart core initialized.");
-}
+        _initialized = true;
+        LilithsLogger.Info("LilithsHeart core initialized.");
+
+        // Added: Fire event so modules know initialization is complete
+        OnInitialized?.Invoke();
+    }
 }
