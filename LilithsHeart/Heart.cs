@@ -1,8 +1,9 @@
 using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
-using LilithsHeart.Systems;
 using LilithsHeart.Config;
+using LilithsHeart.Events;
+using LilithsHeart.Prefabs;
 
 namespace LilithsHeart;
 
@@ -41,23 +42,24 @@ public static class Heart
     {
         if (_initialized) return;
 
-        LilithsLogger.Info(LOG_SOURCE, "Heart initializing...");
+        HeartLogger.Info(LOG_SOURCE, "Heart initializing...");
 
-        // [CHANGED] Export runs first so the Names directory and JSON files exist
+        // [CHANGED] PrefabNameExporter (singular) replaces PrefabNamesExporter.
+        //           Namespace updated: Systems → Prefabs.
+        //           Export runs first so the Names directory and JSON files exist
         //           before PrefabNameResolver tries to load from them.
         //           On subsequent boots, Export() is a near-no-op (all files exist).
-        PrefabNamesExporter.Export();
+        PrefabNameExporter.Export();
 
         PrefabNameResolver.Initialize();
 
-        // [ADDED] LocalizationConfig loads after prefab names are resolved
-        //         so that future validation (key exists in resolver) is possible.
-        //         Reads once from disk — no further I/O after this point.
+        // LocalizationConfig loads after prefab names are resolved so that
+        // future name-key validation is possible. Reads once from disk.
         LocalizationConfig.Initialize();
 
         _initialized = true;
 
-        LilithsLogger.Info(LOG_SOURCE, "Heart initialized.");
+        HeartLogger.Info(LOG_SOURCE, "Heart initialized.");
         OnInitialized?.Invoke();
     }
 }

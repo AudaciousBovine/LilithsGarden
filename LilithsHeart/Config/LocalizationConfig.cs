@@ -25,6 +25,7 @@ using System.Text.Json;
 
 namespace LilithsHeart.Config;
 
+// [CHANGED] LilithsLogger → HeartLogger throughout.
 public static class LocalizationConfig
 {
     private const string LOG_SOURCE = "LilithsHeart.LocalizationConfig";
@@ -50,7 +51,7 @@ public static class LocalizationConfig
         _tooltips.Clear();
         IsLoaded = false;
 
-        LilithsLogger.Info(LOG_SOURCE, "Reloading localization overrides...");
+        HeartLogger.Info(LOG_SOURCE, "Reloading localization overrides...");
         Load();
     }
 
@@ -70,7 +71,7 @@ public static class LocalizationConfig
 
         if (files.Length == 0)
         {
-            LilithsLogger.Info(LOG_SOURCE, "No localization JSON files found. Overrides disabled.");
+            HeartLogger.Info(LOG_SOURCE, "No localization JSON files found. Overrides disabled.");
             IsLoaded = true;
             return;
         }
@@ -79,7 +80,7 @@ public static class LocalizationConfig
             LoadFile(file);
 
         IsLoaded = true;
-        LilithsLogger.Info(LOG_SOURCE,
+        HeartLogger.Info(LOG_SOURCE,
             $"Loaded {_displayNames.Count} display name(s) and {_tooltips.Count} tooltip(s) " +
             $"from {files.Length} file(s).");
     }
@@ -90,23 +91,18 @@ public static class LocalizationConfig
         {
             var json = File.ReadAllText(filePath);
 
-            // [CHANGED] Deserialize into Dictionary<string, JsonElement> first rather
-            //           than directly into Dictionary<string, LocalizationEntry>.
-            //
-            //           The example file (and any admin file) may contain a "_readme"
-            //           key whose value is a plain string, not an object. The previous
-            //           approach tried to deserialize that string as a LocalizationEntry
-            //           and threw before we could skip it.
-            //
-            //           By landing in JsonElement first we can inspect each value's
-            //           Kind before attempting conversion — non-Object entries are
-            //           skipped cleanly without an exception.
+            // Deserialize into Dictionary<string, JsonElement> first rather than
+            // directly into Dictionary<string, LocalizationEntry>.
+            // The example file may contain a "_readme" key whose value is a plain
+            // string, not an object. By landing in JsonElement first we can inspect
+            // each value's Kind before attempting conversion — non-Object entries
+            // are skipped cleanly without throwing.
             var raw = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (raw == null)
             {
-                LilithsLogger.Warning(LOG_SOURCE,
+                HeartLogger.Warning(LOG_SOURCE,
                     $"'{Path.GetFileName(filePath)}' parsed as null — check for malformed JSON.");
                 return;
             }
@@ -116,7 +112,6 @@ public static class LocalizationConfig
 
             foreach (var (key, element) in raw)
             {
-                // Skip documentation keys and any non-object values (e.g. _readme string).
                 if (element.ValueKind != JsonValueKind.Object) continue;
 
                 string? displayName = null;
@@ -143,44 +138,37 @@ public static class LocalizationConfig
                 }
             }
 
-            LilithsLogger.Info(LOG_SOURCE,
+            HeartLogger.Info(LOG_SOURCE,
                 $"Loaded '{Path.GetFileName(filePath)}' — " +
                 $"{nameCount} name(s), {tooltipCount} tooltip(s).");
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error(LOG_SOURCE,
-                $"Failed to parse '{Path.GetFileName(filePath)}': {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to load '{Path.GetFileName(filePath)}': {ex.Message}");
         }
     }
 
     static void EnsureExampleFile()
     {
-        var examplePath = Path.Combine(HeartPaths.LocalizationDir, "example.json");
+        var examplePath = Path.Combine(HeartPaths.LocalizationDir, "example-overrides.json");
         if (File.Exists(examplePath)) return;
 
-        const string example = """
-{
-  "_readme": "Copy and rename this file (e.g. items.json). Keys are prefab OriginalName or NewName. Null leaves that field vanilla. Files load alphabetically — later files win on key conflicts.",
-  "Item_BloodEssence_T01": {
-    "DisplayName": "Vitae",
-    "Tooltip": "Concentrated life force, drawn from the living."
-  },
-  "Item_Ingredient_Plant_Cotton": {
-    "DisplayName": "Moonweave",
-    "Tooltip": null
-  }
-}
-""";
+        var example = new Dictionary<string, object>
+        {
+            ["_readme"] = "Keys are prefab names. Set DisplayName and/or Tooltip to override vanilla strings. " +
+                          "Set ChangesEnabled to true to apply. Files are merged alphabetically — later files win.",
+            ["Item_BloodEssence_T01"] = new { DisplayName = "Vitae", Tooltip = (string?)null }
+        };
 
         try
         {
-            File.WriteAllText(examplePath, example);
-            LilithsLogger.Info(LOG_SOURCE, $"Created example localization file at '{examplePath}'.");
+            var json = JsonSerializer.Serialize(example, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(examplePath, json);
+            HeartLogger.Info(LOG_SOURCE, "Generated example-overrides.json.");
         }
         catch (Exception ex)
         {
-            LilithsLogger.Warning(LOG_SOURCE, $"Could not write example localization file: {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to write example-overrides.json: {ex.Message}");
         }
     }
 }

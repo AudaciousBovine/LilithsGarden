@@ -1,8 +1,13 @@
 using System.Text.Json;
 using Stunlock.Core;
+using LilithsHeart.Config;
 
-namespace LilithsHeart.Systems;
+namespace LilithsHeart.Prefabs;
 
+// [CHANGED] Moved from Systems/ → Prefabs/.
+//           Namespace updated: LilithsHeart.Systems → LilithsHeart.Prefabs.
+//           PrefabNameEntry extracted to its own file (PrefabNameEntry.cs).
+//           LilithsLogger → HeartLogger.
 public static class PrefabNameResolver
 {
     private const string LOG_SOURCE = "LilithsHeart.PrefabNameResolver";
@@ -13,20 +18,19 @@ public static class PrefabNameResolver
     static readonly Dictionary<string, PrefabGUID> _newNameToGuid      = new();
     static readonly Dictionary<string, PrefabGUID> _originalNameToGuid = new();
 
-    // [ADDED] GUID → name (reverse lookup — used by generators that iterate
-    //         ECS entities and need a human-readable name for each GUID).
-    //         Prefers NewName over OriginalName when both exist, so generated
-    //         files use the same admin-facing names as config inputs.
+    // GUID → name (reverse lookup — used by generators that iterate
+    // ECS entities and need a human-readable name for each GUID).
+    // Prefers NewName over OriginalName when both exist, so generated
+    // files use the same admin-facing names as config inputs.
     static readonly Dictionary<int, string> _guidToName = new();
 
-    // [CHANGED] Replaced inline path construction with HeartPaths.NamesDir.
     static readonly string ConfigDir = HeartPaths.NamesDir;
 
     public static void Initialize()
     {
         if (!Directory.Exists(ConfigDir))
         {
-            LilithsLogger.Warning(LOG_SOURCE, $"Names directory not found at '{ConfigDir}', skipping prefab name loading.");
+            HeartLogger.Warning(LOG_SOURCE, $"Names directory not found at '{ConfigDir}', skipping prefab name loading.");
             return;
         }
 
@@ -34,21 +38,21 @@ public static class PrefabNameResolver
 
         if (files.Length == 0)
         {
-            LilithsLogger.Warning(LOG_SOURCE, "No JSON files found in Names directory, skipping prefab name loading.");
+            HeartLogger.Warning(LOG_SOURCE, "No JSON files found in Names directory, skipping prefab name loading.");
             return;
         }
 
         foreach (var file in files)
             LoadPrefabNames(file);
 
-        LilithsLogger.Info(LOG_SOURCE, $"Initialized with {_guidToName.Count} entries from {files.Length} file(s).");
+        HeartLogger.Info(LOG_SOURCE, $"Initialized with {_guidToName.Count} entries from {files.Length} file(s).");
     }
 
     static void LoadPrefabNames(string filePath)
     {
         if (!File.Exists(filePath))
         {
-            LilithsLogger.Warning(LOG_SOURCE, $"'{Path.GetFileName(filePath)}' not found, skipping.");
+            HeartLogger.Warning(LOG_SOURCE, $"'{Path.GetFileName(filePath)}' not found, skipping.");
             return;
         }
 
@@ -72,21 +76,21 @@ public static class PrefabNameResolver
                 if (!string.IsNullOrEmpty(entry.NewName))
                     _newNameToGuid[entry.NewName] = guid;
 
-                // [ADDED] Reverse mapping. NewName wins over OriginalName —
-                //         admin-defined names take priority in generated output.
-                //         This means generators produce files that round-trip
-                //         cleanly back into the config loader.
+                // Reverse mapping. NewName wins over OriginalName —
+                // admin-defined names take priority in generated output.
+                // This means generators produce files that round-trip
+                // cleanly back into the config loader.
                 if (!string.IsNullOrEmpty(entry.NewName))
                     _guidToName[guidValue] = entry.NewName;
                 else if (!string.IsNullOrEmpty(entry.OriginalName))
                     _guidToName[guidValue] = entry.OriginalName;
             }
 
-            LilithsLogger.Info(LOG_SOURCE, $"Loaded '{Path.GetFileName(filePath)}'.");
+            HeartLogger.Info(LOG_SOURCE, $"Loaded '{Path.GetFileName(filePath)}'.");
         }
         catch (Exception e)
         {
-            LilithsLogger.Error(LOG_SOURCE, $"Failed to load '{Path.GetFileName(filePath)}': {e.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to load '{Path.GetFileName(filePath)}': {e.Message}");
         }
     }
 
@@ -106,7 +110,7 @@ public static class PrefabNameResolver
             return true;
 
         guid = Empty;
-        LilithsLogger.Warning(LOG_SOURCE, $"Could not resolve prefab name: '{name}'");
+        HeartLogger.Warning(LOG_SOURCE, $"Could not resolve prefab name: '{name}'");
         return false;
     }
 
@@ -130,10 +134,4 @@ public static class PrefabNameResolver
         name = string.Empty;
         return false;
     }
-}
-
-public class PrefabNameEntry
-{
-    public string OriginalName { get; set; } = string.Empty;
-    public string NewName      { get; set; } = string.Empty;
 }

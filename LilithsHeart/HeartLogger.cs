@@ -3,7 +3,15 @@ using LilithsHeart.Config;
 
 namespace LilithsHeart;
 
-public static class LilithsLogger
+// [CHANGED] Renamed from LilithsLogger to HeartLogger.
+//           LilithsLogger used the suite prefix while every other type in this
+//           assembly uses the Heart prefix (HeartConfig, HeartPaths, HeartRegistry, etc).
+//           HeartLogger is consistent with that convention and makes it immediately
+//           clear which assembly owns the logger.
+//
+//           All references across LilithsHeart and LilithsCookbook must be updated
+//           from LilithsLogger → HeartLogger.
+public static class HeartLogger
 {
     private static ManualLogSource _logger = null!;
 
@@ -21,9 +29,8 @@ public static class LilithsLogger
     public static void Error(string source, string message)
         => _logger.LogError($"[{source}] {message}");
 
-    // [CHANGED] Debug guard restored now that HeartConfig is written.
-    //           Zero cost when debug is off — no string allocation or write operations.
-    // [PERFORMANCE] Short-circuits immediately if IsDebug is false.
+    // [PERFORMANCE] Short-circuits immediately if IsDebug is false —
+    //               no string allocation or log write when debug is off.
     public static void Debug(string source, string message)
     {
         if (HeartConfig.IsDebug)

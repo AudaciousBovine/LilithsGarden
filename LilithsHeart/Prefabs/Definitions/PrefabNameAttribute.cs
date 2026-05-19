@@ -1,8 +1,12 @@
-namespace LilithsHeart.Resources.Prefabs;
+// [CHANGED] Moved from Prefabs/Registry/ → Prefabs/Definitions/.
+//           Namespace updated: LilithsHeart.Prefabs.Registry → LilithsHeart.Prefabs.Definitions.
+//           All static prefab registry classes must update their namespace to match.
+
+namespace LilithsHeart.Prefabs.Definitions;
 
 /// <summary>
 /// Decorates a PrefabGUID field with a human-friendly alias (NewName) that will
-/// be written into the generated Names JSON files by PrefabNamesExporter.
+/// be written into the generated Names JSON files by PrefabNameExporter.
 ///
 /// Keeping the alias co-located with the GUID field means:
 ///   - New entries need only one line with both pieces of data.

@@ -2,11 +2,13 @@ using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
 using LilithsHeart;
-using LilithsHeart.Systems;
+using LilithsHeart.Prefabs;
 using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
+// [CHANGED] LilithsLogger → HeartLogger throughout.
+//           Added using LilithsHeart.Prefabs for PrefabNameResolver.
 public static class StationSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.StationSystem";
@@ -17,7 +19,7 @@ public static class StationSystem
 
         if (config == null || config.Stations.Count == 0)
         {
-            LilithsLogger.Info(LOG_SOURCE, "No station changes configured.");
+            HeartLogger.Info(LOG_SOURCE, "No station changes configured.");
             return;
         }
 
@@ -29,19 +31,19 @@ public static class StationSystem
 
             if (!PrefabNameResolver.TryResolve(stationName, out PrefabGUID guid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"Could not resolve station: '{stationName}'");
+                HeartLogger.Warning(LOG_SOURCE, $"Could not resolve station: '{stationName}'");
                 continue;
             }
 
             if (!Heart.PrefabCollectionSystem._PrefabGuidToEntityMap.TryGetValue(guid, out Entity stationEntity))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"Could not find prefab entity for station: '{stationName}'");
+                HeartLogger.Warning(LOG_SOURCE, $"Could not find prefab entity for station: '{stationName}'");
                 continue;
             }
 
             if (!stationEntity.Has<RefinementstationRecipesBuffer>())
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"Station '{stationName}' does not have a RefinementstationRecipesBuffer, skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"Station '{stationName}' does not have a RefinementstationRecipesBuffer, skipping.");
                 continue;
             }
 
@@ -52,18 +54,18 @@ public static class StationSystem
                 RemoveRecipes(stationEntity, entry.RemoveRecipes, stationName);
 
             changed++;
-            LilithsLogger.Info(LOG_SOURCE, $"Applied changes to station: '{stationName}'");
+            HeartLogger.Info(LOG_SOURCE, $"Applied changes to station: '{stationName}'");
         }
 
         if (changed > 0)
         {
             Heart.GameDataSystem.RegisterRecipes();
             Heart.PrefabCollectionSystem.RegisterGameData();
-            LilithsLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
+            HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
         }
         else
         {
-            LilithsLogger.Info(LOG_SOURCE, "No stations had ChangesEnabled = true, skipping registration.");
+            HeartLogger.Info(LOG_SOURCE, "No stations had ChangesEnabled = true, skipping registration.");
         }
     }
 
@@ -77,7 +79,7 @@ public static class StationSystem
         {
             if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to add: '{recipeName}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to add: '{recipeName}', skipping.");
                 continue;
             }
 
@@ -94,7 +96,7 @@ public static class StationSystem
 
             if (alreadyExists)
             {
-                LilithsLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
+                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
                 continue;
             }
 
@@ -105,7 +107,7 @@ public static class StationSystem
                 Unlocked   = true
             });
 
-            LilithsLogger.Info(LOG_SOURCE, $"[{stationName}] Added recipe '{recipeName}'.");
+            HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Added recipe '{recipeName}'.");
         }
     }
 
@@ -117,7 +119,7 @@ public static class StationSystem
         {
             if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to remove: '{recipeName}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to remove: '{recipeName}', skipping.");
                 continue;
             }
 
@@ -129,14 +131,14 @@ public static class StationSystem
                 if (buffer[i].RecipeGuid.Equals(recipeGuid))
                 {
                     buffer.RemoveAt(i);
-                    LilithsLogger.Info(LOG_SOURCE, $"[{stationName}] Removed recipe '{recipeName}'.");
+                    HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Removed recipe '{recipeName}'.");
                     found = true;
                     break;
                 }
             }
 
             if (!found)
-                LilithsLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' not found in station, nothing to remove.");
+                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' not found in station, nothing to remove.");
         }
     }
 }

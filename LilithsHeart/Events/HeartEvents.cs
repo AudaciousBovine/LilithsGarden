@@ -1,9 +1,12 @@
 // ============================================================
 //  HeartEvents — Core event definitions for LilithsHeart.
+//
+//  [CHANGED] Moved from Systems/ → Events/.
+//
 //  New events are added here as each module requires them.
 // ============================================================
 
-namespace LilithsHeart.Systems;
+namespace LilithsHeart.Events;
 
 /// <summary>
 /// Fired once when the game world ECS is ready and safe to query.

@@ -3,11 +3,14 @@ using System.Collections.Generic;
 // ============================================================
 //  HeartRegistry — LilithsHeart Module Registration Hub
 //
-//  Purpose: Each LilithsHeart module announces itself here
-//  on load. This gives Heart and other modules awareness of
-//  what is currently loaded without hard assembly references.
+//  [CHANGED] Moved from Registry/ → Modules/.
+//            Namespace updated: LilithsHeart.Registry → LilithsHeart.Modules.
 //
-//  Usage in another module's Plugin Load():
+//  Purpose: Each module announces itself here on load. This gives
+//  Heart and other modules awareness of what is loaded without
+//  hard assembly references.
+//
+//  Usage in another module's Plugin.Load():
 //
 //      HeartRegistry.Register(new ModuleInfo
 //      {
@@ -25,7 +28,7 @@ using System.Collections.Generic;
 //  IsLoaded() is O(1) — no concern.
 // ============================================================
 
-namespace LilithsHeart.Systems;
+namespace LilithsHeart.Modules;
 
 public static class HeartRegistry
 {
@@ -42,25 +45,25 @@ public static class HeartRegistry
     {
         _modules.Clear();
         OnModuleRegistered = null;
-        LilithsLogger.Info(LOG_SOURCE, "HeartRegistry initialized.");
+        HeartLogger.Info(LOG_SOURCE, "HeartRegistry initialized.");
     }
 
     public static void Shutdown()
     {
         _modules.Clear();
         OnModuleRegistered = null;
-        LilithsLogger.Info(LOG_SOURCE, "HeartRegistry shut down.");
+        HeartLogger.Info(LOG_SOURCE, "HeartRegistry shut down.");
     }
 
     /// <summary>
     /// Register a LilithsHeart module.
-    /// Call this in your module's Plugin Load().
+    /// Call this in your module's Plugin.Load().
     /// Safe to call multiple times with the same ID — later calls update the entry.
     /// </summary>
     public static void Register(ModuleInfo info)
     {
         _modules[info.ModuleId] = info;
-        LilithsLogger.Info(LOG_SOURCE, $"Registered: {info.ModuleName} v{info.Version}");
+        HeartLogger.Info(LOG_SOURCE, $"Registered: {info.ModuleName} v{info.Version}");
         OnModuleRegistered?.Invoke(info);
     }
 
@@ -89,43 +92,18 @@ public static class HeartRegistry
     /// </summary>
     public static void LogSummary()
     {
-        LilithsLogger.Info(LOG_SOURCE, "=== LilithsHeart Modules ===");
+        HeartLogger.Info(LOG_SOURCE, "=== LilithsHeart Modules ===");
 
         if (_modules.Count == 0)
         {
-            LilithsLogger.Info(LOG_SOURCE, "  (no modules registered)");
+            HeartLogger.Info(LOG_SOURCE, "  (no modules registered)");
             return;
         }
 
         foreach (var m in _modules.Values.OrderBy(m => m.ModuleName))
-            LilithsLogger.Info(LOG_SOURCE, $"  {m.ModuleName} v{m.Version}");
+            HeartLogger.Info(LOG_SOURCE, $"  {m.ModuleName} v{m.Version}");
 
-        LilithsLogger.Info(LOG_SOURCE, $"  Total: {_modules.Count} module(s)");
-        LilithsLogger.Info(LOG_SOURCE, "=============================");
+        HeartLogger.Info(LOG_SOURCE, $"  Total: {_modules.Count} module(s)");
+        HeartLogger.Info(LOG_SOURCE, "=============================");
     }
-}
-
-/// <summary>
-/// Metadata describing a registered LilithsHeart module.
-/// </summary>
-public class ModuleInfo
-{
-    /// <summary>
-    /// Unique reverse-domain ID matching the BepInPlugin GUID.
-    /// e.g. "audaciousbovine.lilithsbounty"
-    /// </summary>
-    public string ModuleId { get; set; } = string.Empty;
-
-    /// <summary>Human-readable name e.g. "LilithsBounty"</summary>
-    public string ModuleName { get; set; } = string.Empty;
-
-    /// <summary>Semantic version string e.g. "0.1.0"</summary>
-    public string Version { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Optional capability tags this module exposes.
-    /// Other modules can query these for feature discovery.
-    /// e.g. "drop-tables", "currency", "quests"
-    /// </summary>
-    public string[] Capabilities { get; set; } = Array.Empty<string>();
 }

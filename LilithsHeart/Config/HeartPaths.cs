@@ -1,6 +1,11 @@
 // ============================================================
 //  HeartPaths — LilithsHeart
 //
+//  [CHANGED] Moved from LilithsHeart/ root → Config/.
+//            Namespace updated: LilithsHeart → LilithsHeart.Config.
+//            Any file referencing HeartPaths must add:
+//                using LilithsHeart.Config;
+//
 //  Single source of truth for every filesystem path used by
 //  LilithsHeart and its child modules.
 //
@@ -10,15 +15,13 @@
 //  Structure:
 //      LilithsHeart/
 //          LilithsHeart.cfg            ← Heart core settings
-//          LilithsCookbook.cfg         ← child module cfg (example)
-//          LilithsBounty.cfg           ← child module cfg (example)
+//          LilithsCookbook.cfg         ← child module cfg
 //          Names/
 //              *.json                  ← prefab name export files
 //          Localization/
-//              overrides.json          ← server localization overrides
-//          Recipes/                    ← future: recipe config data
-//          Stations/                   ← future: station config data
-//          Buffs/                      ← future: buff config data
+//              *.json                  ← server localization overrides
+//          Recipes/                    ← recipe config data
+//          Stations/                   ← station config data
 //
 //  Child modules should use HeartPaths to resolve all paths
 //  rather than building their own path strings. This keeps
@@ -34,7 +37,7 @@
 //
 // ============================================================
 
-namespace LilithsHeart;
+namespace LilithsHeart.Config;
 
 public static class HeartPaths
 {
@@ -71,7 +74,7 @@ public static class HeartPaths
 
     /// <summary>
     /// BepInEx/config/LilithsHeart/Names/
-    /// Prefab name export JSON files written by PrefabNamesExporter.
+    /// Prefab name export JSON files written by PrefabNameExporter.
     /// </summary>
     public static readonly string NamesDir = Path.Combine(Root, "Names");
 
@@ -92,10 +95,4 @@ public static class HeartPaths
     /// </summary>
     public static string DataDir(string category)
         => Path.Combine(Root, category);
-
-    // ── Specific file paths ─────────────────────────────────
-
-    // [CHANGED] Removed LocalizationOverrides single-file path.
-    //           LocalizationConfig now scans the whole LocalizationDir
-    //           for any *.json file, matching the Names/ directory pattern.
 }

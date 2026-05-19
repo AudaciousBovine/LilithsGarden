@@ -4,6 +4,7 @@ using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
+// [CHANGED] LilithsLogger → HeartLogger throughout.
 public static class CookbookLoader
 {
     private const string LOG_SOURCE = "LilithsCookbook.CookbookLoader";
@@ -32,7 +33,7 @@ public static class CookbookLoader
                 merged.Recipes[key] = value;
         }
 
-        LilithsLogger.Info(LOG_SOURCE, $"Loaded {merged.Recipes.Count} recipe entries from {recipesDir}.");
+        HeartLogger.Info(LOG_SOURCE, $"Loaded {merged.Recipes.Count} recipe entries from {recipesDir}.");
         return merged;
     }
 
@@ -53,7 +54,7 @@ public static class CookbookLoader
                 merged.Stations[key] = value;
         }
 
-        LilithsLogger.Info(LOG_SOURCE, $"Loaded {merged.Stations.Count} station entries from {stationsDir}.");
+        HeartLogger.Info(LOG_SOURCE, $"Loaded {merged.Stations.Count} station entries from {stationsDir}.");
         return merged;
     }
 
@@ -63,7 +64,7 @@ public static class CookbookLoader
     {
         if (!Directory.Exists(directory))
         {
-            LilithsLogger.Warning(LOG_SOURCE, $"Config directory not found: {directory}");
+            HeartLogger.Warning(LOG_SOURCE, $"Config directory not found: {directory}");
             return Enumerable.Empty<string>();
         }
 
@@ -74,17 +75,17 @@ public static class CookbookLoader
     {
         try
         {
-            var json = File.ReadAllText(filePath);
+            var json   = File.ReadAllText(filePath);
             var result = JsonSerializer.Deserialize<T>(json, _readOptions);
 
             if (result == null)
-                LilithsLogger.Warning(LOG_SOURCE, $"File deserialized to null: {Path.GetFileName(filePath)}");
+                HeartLogger.Warning(LOG_SOURCE, $"File deserialized to null: {Path.GetFileName(filePath)}");
 
             return result;
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error(LOG_SOURCE, $"Failed to load {Path.GetFileName(filePath)}: {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to load {Path.GetFileName(filePath)}: {ex.Message}");
             return default;
         }
     }

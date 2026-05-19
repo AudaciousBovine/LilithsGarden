@@ -3,7 +3,9 @@ using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using LilithsHeart.Config;
-using LilithsHeart.Systems;
+using LilithsHeart.Events;
+using LilithsHeart.Modules;
+// HeartPaths now lives in LilithsHeart.Config — covered by the using above.
 
 namespace LilithsHeart;
 
@@ -15,34 +17,22 @@ public class HeartPlugin : BasePlugin
 
     public override void Load()
     {
-        LilithsLogger.Initialize(base.Log);
+        // [CHANGED] LilithsLogger → HeartLogger throughout.
+        HeartLogger.Initialize(base.Log);
 
         try
         {
-            LilithsLogger.Info("LilithsHeart", $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
+            HeartLogger.Info("LilithsHeart", $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
 
-            // [CHANGED] We no longer pass base.Config to HeartConfig.
-            //
-            //           BepInEx names its auto-generated ConfigFile after the plugin GUID,
-            //           which produces "audaciousbovine.lilithsheart.cfg" — not ideal for
-            //           server admins browsing the config folder.
-            //
-            //           Instead we create our own ConfigFile pointed at:
-            //               BepInEx/config/LilithsHeart/LilithsHeart.cfg
-            //
-            //           The GUID (audaciousbovine.lilithsheart) is intentionally left
-            //           unchanged — it is used by BepInEx for dependency resolution
-            //           between modules and must remain stable.
-            //
-            //           Child modules should follow the same pattern:
-            //               new ConfigFile(HeartPaths.ModuleConfig("LilithsCookbook"), saveOnInit: true)
-            //           which produces BepInEx/config/LilithsHeart/LilithsCookbook.cfg
-            //
-            // [PERFORMANCE] ConfigFile constructor reads the file from disk once here.
-            //               All subsequent Bind() calls are in-memory only.
+            // Config file named explicitly so admins see LilithsHeart.cfg rather than
+            // the plugin GUID filename BepInEx would generate by default.
+            // [PERFORMANCE] ConfigFile constructor reads from disk once here.
+            //               All subsequent Bind() calls in HeartConfig are in-memory only.
             var configFile = new ConfigFile(HeartPaths.CoreConfig, saveOnInit: true);
 
             HeartConfig.Initialize(configFile);
+
+            // [CHANGED] Updated namespace references: Systems → Events / Registry
             HeartEventBus.Initialize();
             HeartRegistry.Initialize();
 
@@ -50,11 +40,11 @@ public class HeartPlugin : BasePlugin
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
             _harmony.PatchAll();
 
-            LilithsLogger.Info("LilithsHeart", "LilithsHeart is ready.");
+            HeartLogger.Info("LilithsHeart", "LilithsHeart is ready.");
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error("LilithsHeart", $"Failed to load: {ex.Message}");
+            HeartLogger.Error("LilithsHeart", $"Failed to load: {ex.Message}");
         }
     }
 
@@ -64,7 +54,7 @@ public class HeartPlugin : BasePlugin
         HeartEventBus.Shutdown();
         HeartRegistry.Shutdown();
 
-        LilithsLogger.Info("LilithsHeart", "LilithsHeart unloaded.");
+        HeartLogger.Info("LilithsHeart", "LilithsHeart unloaded.");
         return true;
     }
 }

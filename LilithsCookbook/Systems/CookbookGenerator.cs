@@ -2,7 +2,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ProjectM;
 using LilithsHeart;
-using LilithsHeart.Systems;
+using LilithsHeart.Config;
+using LilithsHeart.Prefabs;
+using LilithsCookbook.Config;   // [CHANGED] was LilithsCookbook.Systems
 using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
@@ -11,17 +13,10 @@ public static class CookbookGenerator
 {
     private const string LOG_SOURCE = "LilithsCookbook.CookbookGenerator";
 
-    // ── Paths ─────────────────────────────────────────────────────────────────
-    //
-    // [CHANGED] Replaced manual Path.Combine constructions with HeartPaths.DataDir().
-    //           All suite config lives under BepInEx/config/LilithsHeart/ — child
-    //           modules do not create their own subfolder. Recipes and Stations are
-    //           category directories directly under the Heart root, consistent with
-    //           how Localization/ and Names/ are structured.
-    //
-    //           Old: BepInEx/config/LilithsHeart/LilithsCookbook/Recipes/
-    //           New: BepInEx/config/LilithsHeart/Recipes/
-
+    // All suite config lives under BepInEx/config/LilithsHeart/ — child
+    // modules do not create their own subfolder. Recipes and Stations are
+    // category directories directly under the Heart root, consistent with
+    // how Localization/ and Names/ are structured.
     public static readonly string RecipesDir  = HeartPaths.DataDir("Recipes");
     public static readonly string StationsDir = HeartPaths.DataDir("Stations");
 
@@ -31,8 +26,8 @@ public static class CookbookGenerator
 
     static readonly JsonSerializerOptions _writeOptions = new()
     {
-        WriteIndented              = true,
-        DefaultIgnoreCondition     = JsonIgnoreCondition.WhenWritingNull
+        WriteIndented          = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
     // ── Initialization (no ECS — safe to call from Plugin.Load) ─────────────
@@ -57,9 +52,8 @@ public static class CookbookGenerator
 
     /// <summary>
     /// If GenerateAllRecipes is enabled in CookbookConfig, iterates all entries in
-    /// GameDataSystem.RecipeHashLookupMap — which contains only recipe entities —
-    /// serializes their current vanilla state to all-recipes.json, then disables
-    /// the setting so it does not run again on the next boot.
+    /// GameDataSystem.RecipeHashLookupMap, serializes their current vanilla state to
+    /// all-recipes.json, then disables the setting so it does not run on next boot.
     ///
     /// We use RecipeHashLookupMap instead of iterating the full PrefabGuidToEntityMap
     /// because the prefab map contains all entity types and HasComponent checks on
@@ -67,53 +61,36 @@ public static class CookbookGenerator
     /// </summary>
     public static void GenerateAllRecipesIfRequested()
     {
-        if (!CookbookConfig.GenerateAllRecipes)
-            return;
+        if (!CookbookConfig.GenerateAllRecipes) return;
 
-        LilithsLogger.Info(LOG_SOURCE, "GenerateAllRecipes is enabled — generating all-recipes.json...");
+        // [CHANGED] LilithsLogger → HeartLogger throughout this file.
+        HeartLogger.Info(LOG_SOURCE, "GenerateAllRecipes is enabled — generating all-recipes.json...");
 
         try
         {
-            var entries   = new Dictionary<string, RecipeEntry>();
             var recipeMap = Heart.GameDataSystem.RecipeHashLookupMap;
-            var prefabMap = Heart.PrefabCollectionSystem._PrefabGuidToEntityMap;
+            var entries   = new Dictionary<string, RecipeEntry>(recipeMap.Count());
 
             foreach (var kvp in recipeMap)
             {
-                var guid = kvp.Key;
+                var entity = kvp.Value;
 
-                // Look up the actual entity from the prefab map to access buffers.
-                if (!prefabMap.TryGetValue(guid, out var entity))
-                    continue;
+                if (!PrefabNameResolver.TryResolveName(kvp.Key, out string recipeName))
+                    recipeName = kvp.Key.GuidHash.ToString();
 
-                // Skip deferred ECB entities — negative Index means not yet
-                // realized in the EntityManager. Touching them throws ArgumentException.
-                if (entity.Index < 0)
-                    continue;
+                var entry = new RecipeEntry { ChangesEnabled = false };
 
-                // Read RecipeData directly from the prefab entity rather than from the
-                // map value — the map struct does not have CraftDuration populated correctly.
-                if (!entity.TryGetComponent<RecipeData>(out var recipeData))
-                    continue;
-
-                // [CHANGED] TryResolveName(PrefabGUID) is now the correct call for GUID → name
-                //           reverse lookups. TryResolve(string) is for name → GUID forward lookups.
-                //           Falls back to raw GUID integer string if no name is registered.
-                if (!PrefabNameResolver.TryResolveName(guid, out string recipeName))
-                    recipeName = guid._Value.ToString();
-
-                var entry = new RecipeEntry
+                if (entity.Has<RecipeData>())
                 {
-                    ChangesEnabled       = false,
-                    CraftDuration        = recipeData.CraftDuration,
-                    AlwaysUnlocked       = recipeData.AlwaysUnlocked,
-                    HideInStation        = recipeData.HideInStation,
-                    IgnoreServerSettings = recipeData.IgnoreServerSettings,
-                    HudSortingOrder      = recipeData.HudSortingOrder
-                };
+                    var data = entity.Read<RecipeData>();
+                    entry.CraftDuration        = data.CraftDuration;
+                    entry.AlwaysUnlocked       = data.AlwaysUnlocked;
+                    entry.HideInStation        = data.HideInStation;
+                    entry.IgnoreServerSettings = data.IgnoreServerSettings;
+                    entry.HudSortingOrder      = data.HudSortingOrder;
+                }
 
-                // Requirements — always present on valid recipe entities.
-                if (entity.TryGetBuffer<RecipeRequirementBuffer>(out var reqBuffer))
+                if (entity.TryGetBuffer<RecipeRequirementBuffer>(out var reqBuffer) && reqBuffer.Length > 0)
                 {
                     entry.Requirements = new List<RecipeRequirement>(reqBuffer.Length);
                     for (int i = 0; i < reqBuffer.Length; i++)
@@ -128,8 +105,7 @@ public static class CookbookGenerator
                     }
                 }
 
-                // Outputs — always present on valid recipe entities.
-                if (entity.TryGetBuffer<RecipeOutputBuffer>(out var outBuffer))
+                if (entity.TryGetBuffer<RecipeOutputBuffer>(out var outBuffer) && outBuffer.Length > 0)
                 {
                     entry.Outputs = new List<RecipeOutput>(outBuffer.Length);
                     for (int i = 0; i < outBuffer.Length; i++)
@@ -144,10 +120,10 @@ public static class CookbookGenerator
                     }
                 }
 
-                // Repair costs — only on equipment recipes. Skip if buffer is absent or empty.
                 if (entity.TryGetBuffer<ItemRepairBuffer>(out var repairBuffer) && repairBuffer.Length > 0)
                 {
-                    entry.RepairCosts = new List<RecipeRepairCost>(repairBuffer.Length);
+                    entry.UseRepairCosts = true;
+                    entry.RepairCosts    = new List<RecipeRepairCost>(repairBuffer.Length);
                     for (int i = 0; i < repairBuffer.Length; i++)
                     {
                         var cost = repairBuffer[i];
@@ -160,7 +136,6 @@ public static class CookbookGenerator
                     }
                 }
 
-                // Unit outputs — only on unit-spawning recipes. Skip if buffer is absent or empty.
                 if (entity.TryGetBuffer<RecipeOutputUnitBuffer>(out var unitBuffer) && unitBuffer.Length > 0)
                 {
                     entry.UnitOutputs = new List<RecipeUnitOutput>(unitBuffer.Length);
@@ -176,7 +151,6 @@ public static class CookbookGenerator
                     }
                 }
 
-                // Recipe links — only on grouped recipes. Skip if buffer is absent or empty.
                 if (entity.TryGetBuffer<RecipeLinkBuffer>(out var linkBuffer) && linkBuffer.Length > 0)
                 {
                     entry.RecipeLinks = new List<string>(linkBuffer.Length);
@@ -195,11 +169,11 @@ public static class CookbookGenerator
 
             var data = new CookbookRecipeData { Recipes = entries };
             WriteJson(AllRecipesPath, data);
-            LilithsLogger.Info(LOG_SOURCE, $"all-recipes.json written with {entries.Count} entries.");
+            HeartLogger.Info(LOG_SOURCE, $"all-recipes.json written with {entries.Count} entries.");
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error(LOG_SOURCE, $"Failed to generate all-recipes.json: {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to generate all-recipes.json: {ex.Message}");
         }
         finally
         {
@@ -253,7 +227,7 @@ public static class CookbookGenerator
         };
 
         WriteJson(ExampleRecipesPath, data);
-        LilithsLogger.Info(LOG_SOURCE, "Generated example-recipes.json.");
+        HeartLogger.Info(LOG_SOURCE, "Generated example-recipes.json.");
     }
 
     static void WriteExampleStations()
@@ -272,7 +246,7 @@ public static class CookbookGenerator
         };
 
         WriteJson(ExampleStationsPath, data);
-        LilithsLogger.Info(LOG_SOURCE, "Generated example-stations.json.");
+        HeartLogger.Info(LOG_SOURCE, "Generated example-stations.json.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -286,7 +260,7 @@ public static class CookbookGenerator
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error(LOG_SOURCE, $"Failed to write {Path.GetFileName(path)}: {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to write {Path.GetFileName(path)}: {ex.Message}");
         }
     }
 }

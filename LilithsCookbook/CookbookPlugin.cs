@@ -2,6 +2,8 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 using LilithsHeart;
+using LilithsHeart.Config;
+using LilithsCookbook.Config;   // [CHANGED] was LilithsCookbook.Systems
 using LilithsCookbook.Data;
 using LilithsCookbook.Systems;
 
@@ -18,19 +20,13 @@ public class CookbookPlugin : BasePlugin
 
     public override void Load()
     {
-        LilithsLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loading.");
+        // [CHANGED] LilithsLogger → HeartLogger throughout.
+        HeartLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loading.");
 
-        // [CHANGED] Replaced base.Config with a named ConfigFile via HeartPaths.
-        //           BepInEx derives the cfg filename from the plugin GUID, which
-        //           produces "audaciousbovine.lilithscookbook.cfg" when using base.Config.
-        //           By creating our own ConfigFile we get:
-        //               BepInEx/config/LilithsHeart/LilithsCookbook.cfg
-        //           All suite cfg files live flat under the LilithsHeart root —
-        //           no per-module subfolders. The GUID is unchanged so BepInEx
-        //           dependency resolution still works.
         var configFile = new ConfigFile(HeartPaths.ModuleConfig("LilithsCookbook"), saveOnInit: true);
 
         // 1. Read BepInEx cfg bindings first — GenerateAllRecipes flag lives here.
+        //    [CHANGED] CookbookConfig now in LilithsCookbook.Config namespace.
         CookbookConfig.Initialize(configFile);
 
         // 2. Create config directories and write example files if missing.
@@ -47,7 +43,7 @@ public class CookbookPlugin : BasePlugin
     public override bool Unload()
     {
         Heart.OnInitialized -= OnHeartInitialized;
-        LilithsLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} unloaded.");
+        HeartLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} unloaded.");
         return true;
     }
 

@@ -2,45 +2,28 @@ using BepInEx.Configuration;
 
 namespace LilithsHeart.Config;
 
+// [CHANGED] Removed Lazy<T> wrappers from all config accessors.
+//           BepInEx's ConfigEntry<T>.Value already caches the parsed value
+//           after the first read. Lazy<T> on top of that added no benefit and
+//           introduced a hot-reload bug: once evaluated, Lazy<T> never
+//           re-reads even if the ConfigFile is reloaded at runtime.
+//           Reading .Value directly matches the pattern used in CookbookConfig
+//           and is safe — no file I/O occurs after Initialize().
+//
+// [CHANGED] Removed StartingInventorySize and GlobalPlayerMovementSpeedMultiplier.
+//           HeartConfig is infrastructure-only. Gameplay settings belong in the
+//           module that owns the feature, not in the shared core. Those two
+//           settings will move to the appropriate gameplay module when built.
 public static class HeartConfig
 {
     private const string LOG_SOURCE = "LilithsHeart.HeartConfig";
 
-    // Raw BepInEx config entries — these are bound to the config file.
-    // Kept private so consumers use the clean Lazy<T> properties below.
-static ConfigEntry<int>   _startingInventorySize                 = null!;
-static ConfigEntry<float> _globalPlayerMovementSpeedMultiplier   = null!;
-static ConfigEntry<bool>  _debugLogging                          = null!;
+    static ConfigEntry<bool> _debugLogging = null!;
 
-    // Lazy<T> accessors — values are not read until first access.
-    // [PERFORMANCE] Deferred reads mean no config file I/O at startup
-    //               beyond the initial Bind() calls in Initialize().
-    static readonly Lazy<int>   _startingInventorySizeLazy                  = new(() => _startingInventorySize.Value);
-    static readonly Lazy<float> _globalPlayerMovementSpeedMultiplierLazy    = new(() => _globalPlayerMovementSpeedMultiplier.Value);
-    static readonly Lazy<bool>  _debugLoggingLazy                           = new(() => _debugLogging.Value);
-
-    // Public accessors — these are what the rest of the codebase uses.
-    public static int   StartingInventorySize                => _startingInventorySizeLazy.Value;
-    public static float GlobalPlayerMovementSpeedMultiplier  => _globalPlayerMovementSpeedMultiplierLazy.Value;
-    public static bool  IsDebug                              => _debugLoggingLazy.Value;
+    public static bool IsDebug => _debugLogging.Value;
 
     public static void Initialize(ConfigFile config)
     {
-        _startingInventorySize = config.Bind(
-            section:      "Player",
-            key:          "StartingInventorySize",
-            defaultValue: 20,
-            description:  "Number of inventory slots a new character starts with. Vanilla default is 20."
-        );
-
-        _globalPlayerMovementSpeedMultiplier = config.Bind(
-            section:      "Player",
-            key:          "GlobalMovementSpeedMultiplier",
-            defaultValue: 1.0f,
-            description:  "Multiplier applied to all player movement speeds. " +
-                          "1.0 = vanilla speed. 1.5 = 50% faster. Applied on spawn and relog."
-        );
-
         _debugLogging = config.Bind(
             section:      "Core",
             key:          "DebugLogging",
@@ -49,9 +32,6 @@ static ConfigEntry<bool>  _debugLogging                          = null!;
                           "Useful during development, disable on live servers."
         );
 
-        LilithsLogger.Info(LOG_SOURCE, $"HeartConfig loaded. " +
-            $"StartingInventorySize={StartingInventorySize}, " +
-            $"MovementMultiplier={GlobalPlayerMovementSpeedMultiplier}, " +
-            $"Debug={IsDebug}");
+        HeartLogger.Info(LOG_SOURCE, $"HeartConfig loaded. Debug={IsDebug}");
     }
 }

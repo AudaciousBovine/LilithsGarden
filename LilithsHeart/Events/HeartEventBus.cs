@@ -1,8 +1,10 @@
 using System.Collections.Generic;
-using LilithsHeart.Systems;
 
 // ============================================================
 //  HeartEventBus — Lightweight pub/sub event system
+//
+//  [CHANGED] Moved from Systems/ → Events/ to better describe
+//            what this folder contains.
 //
 //  Features:
 //    - Type-safe generic subscriptions
@@ -24,17 +26,17 @@ using LilithsHeart.Systems;
 //  Keep handlers fast — no I/O or heavy ECS queries inside them.
 // ============================================================
 
-namespace LilithsHeart.Systems;
+namespace LilithsHeart.Events;
 
 public static class HeartEventBus
 {
     private const string LOG_SOURCE = "LilithsHeart.EventBus";
 
-    // Maps event type → list of delegates
-    // object used to avoid making HeartEventBus generic itself
+    // Maps event type → list of delegates.
+    // object used to avoid making HeartEventBus generic itself.
     private static readonly Dictionary<Type, List<Delegate>> _handlers = new();
 
-    // Single lock object for all thread-safe operations
+    // Single lock object for all thread-safe operations.
     private static readonly object _lock = new();
 
     public static void Initialize()
@@ -43,7 +45,7 @@ public static class HeartEventBus
         {
             _handlers.Clear();
         }
-        LilithsLogger.Info(LOG_SOURCE, "EventBus initialized.");
+        HeartLogger.Info(LOG_SOURCE, "EventBus initialized.");
     }
 
     public static void Shutdown()
@@ -52,7 +54,7 @@ public static class HeartEventBus
         {
             _handlers.Clear();
         }
-        LilithsLogger.Info(LOG_SOURCE, "EventBus shut down.");
+        HeartLogger.Info(LOG_SOURCE, "EventBus shut down.");
     }
 
     /// <summary>
@@ -72,7 +74,7 @@ public static class HeartEventBus
             _handlers[type].Add(handler);
         }
 
-        LilithsLogger.Debug(LOG_SOURCE, $"Subscribed handler for {type.Name}.");
+        HeartLogger.Debug(LOG_SOURCE, $"Subscribed handler for {type.Name}.");
     }
 
     /// <summary>
@@ -82,7 +84,6 @@ public static class HeartEventBus
     /// </summary>
     public static void SubscribeOnce<TEvent>(Action<TEvent> handler) where TEvent : struct
     {
-        // [ADDED] One-shot wrapper — unsubscribes itself after first invocation
         Action<TEvent>? wrapper = null;
         wrapper = evt =>
         {
@@ -91,7 +92,7 @@ public static class HeartEventBus
         };
         Subscribe(wrapper);
 
-        LilithsLogger.Debug(LOG_SOURCE, $"SubscribeOnce registered for {typeof(TEvent).Name}.");
+        HeartLogger.Debug(LOG_SOURCE, $"SubscribeOnce registered for {typeof(TEvent).Name}.");
     }
 
     /// <summary>
@@ -108,7 +109,7 @@ public static class HeartEventBus
                 list.Remove(handler);
         }
 
-        LilithsLogger.Debug(LOG_SOURCE, $"Unsubscribed handler for {type.Name}.");
+        HeartLogger.Debug(LOG_SOURCE, $"Unsubscribed handler for {type.Name}.");
     }
 
     /// <summary>
@@ -127,7 +128,7 @@ public static class HeartEventBus
         Delegate[]? snapshot = null;
 
         // Take a snapshot under lock, then dispatch outside the lock
-        // so handlers can safely call Subscribe/Unsubscribe
+        // so handlers can safely call Subscribe/Unsubscribe.
         lock (_lock)
         {
             if (_handlers.TryGetValue(type, out var list) && list.Count > 0)
@@ -145,9 +146,9 @@ public static class HeartEventBus
             }
             catch (Exception ex)
             {
-                // [CHANGED] Exceptions are caught per-handler so one bad
-                //           subscriber cannot prevent others from receiving the event.
-                LilithsLogger.Error(LOG_SOURCE, $"Handler for {type.Name} threw: {ex.Message}");
+                // Exceptions are caught per-handler so one bad subscriber
+                // cannot prevent others from receiving the event.
+                HeartLogger.Error(LOG_SOURCE, $"Handler for {type.Name} threw: {ex.Message}");
             }
         }
     }

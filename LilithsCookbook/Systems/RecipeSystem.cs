@@ -2,11 +2,13 @@ using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
 using LilithsHeart;
-using LilithsHeart.Systems;
+using LilithsHeart.Prefabs;
 using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
+// [CHANGED] LilithsLogger → HeartLogger throughout.
+//           Added using LilithsHeart.Prefabs for PrefabNameResolver.
 public static class RecipeSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.RecipeSystem";
@@ -17,12 +19,12 @@ public static class RecipeSystem
 
         if (config == null || config.Recipes.Count == 0)
         {
-            LilithsLogger.Info(LOG_SOURCE, "No recipe changes configured.");
+            HeartLogger.Info(LOG_SOURCE, "No recipe changes configured.");
             return;
         }
 
         var recipeMap = Heart.GameDataSystem.RecipeHashLookupMap;
-        int changed = 0;
+        int changed   = 0;
 
         foreach (var (recipeName, entry) in config.Recipes)
         {
@@ -30,13 +32,13 @@ public static class RecipeSystem
 
             if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID guid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"Could not resolve recipe: '{recipeName}'");
+                HeartLogger.Warning(LOG_SOURCE, $"Could not resolve recipe: '{recipeName}'");
                 continue;
             }
 
             if (!Heart.PrefabCollectionSystem._PrefabGuidToEntityMap.TryGetValue(guid, out Entity recipeEntity))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"Could not find prefab entity for recipe: '{recipeName}'");
+                HeartLogger.Warning(LOG_SOURCE, $"Could not find prefab entity for recipe: '{recipeName}'");
                 continue;
             }
 
@@ -55,10 +57,6 @@ public static class RecipeSystem
             if (entry.Outputs != null)
                 ApplyOutputs(recipeEntity, entry.Outputs, recipeName);
 
-            // Optional buffer flags:
-            //   null  -> not specified, skip entirely
-            //   false -> remove the buffer
-            //   true  -> ensure buffer exists and apply the list
             if (entry.UseRepairCosts.HasValue)
                 ApplyOptionalBuffer(recipeEntity, entry.UseRepairCosts.Value, entry.RepairCosts, recipeName,
                     ApplyRepairCosts);
@@ -71,47 +69,34 @@ public static class RecipeSystem
                 ApplyOptionalBuffer(recipeEntity, entry.UseRecipeLinks.Value, entry.RecipeLinks, recipeName,
                     ApplyRecipeLinks);
 
-            // Keep the game's recipe lookup map in sync after modifying the entity.
-            recipeMap[guid] = recipeEntity.Read<RecipeData>();
-
+            recipeMap[guid] = recipeEntity;
             changed++;
-            LilithsLogger.Info(LOG_SOURCE, $"Applied changes to recipe: '{recipeName}'");
         }
 
         if (changed > 0)
         {
             Heart.GameDataSystem.RegisterRecipes();
-            Heart.GameDataSystem.RegisterItems();
-            Heart.PrefabCollectionSystem.RegisterGameData();
-            LilithsLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} recipe(s).");
+            HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} recipe(s).");
         }
         else
         {
-            LilithsLogger.Info(LOG_SOURCE, "No recipes had ChangesEnabled = true, skipping registration.");
+            HeartLogger.Info(LOG_SOURCE, "No recipes had ChangesEnabled = true, skipping registration.");
         }
     }
 
-    // ── Apply helpers ─────────────────────────────────────────────────────────
+    // ── Per-field apply ───────────────────────────────────────────────────────
 
     static void ApplyRecipeData(Entity recipeEntity, RecipeEntry entry)
     {
-        recipeEntity.With((ref RecipeData recipeData) =>
-        {
-            if (entry.CraftDuration.HasValue)
-                recipeData.CraftDuration = entry.CraftDuration.Value;
+        var data = recipeEntity.Read<RecipeData>();
 
-            if (entry.AlwaysUnlocked.HasValue)
-                recipeData.AlwaysUnlocked = entry.AlwaysUnlocked.Value;
+        if (entry.CraftDuration.HasValue)       data.CraftDuration        = entry.CraftDuration.Value;
+        if (entry.AlwaysUnlocked.HasValue)       data.AlwaysUnlocked       = entry.AlwaysUnlocked.Value;
+        if (entry.HideInStation.HasValue)        data.HideInStation        = entry.HideInStation.Value;
+        if (entry.IgnoreServerSettings.HasValue) data.IgnoreServerSettings = entry.IgnoreServerSettings.Value;
+        if (entry.HudSortingOrder.HasValue)      data.HudSortingOrder      = entry.HudSortingOrder.Value;
 
-            if (entry.HideInStation.HasValue)
-                recipeData.HideInStation = entry.HideInStation.Value;
-
-            if (entry.IgnoreServerSettings.HasValue)
-                recipeData.IgnoreServerSettings = entry.IgnoreServerSettings.Value;
-
-            if (entry.HudSortingOrder.HasValue)
-                recipeData.HudSortingOrder = entry.HudSortingOrder.Value;
-        });
+        recipeEntity.Write(data);
     }
 
     static void ApplyRequirements(Entity recipeEntity, List<RecipeRequirement> requirements, string recipeName)
@@ -125,7 +110,7 @@ public static class RecipeSystem
         {
             if (!PrefabNameResolver.TryResolve(req.Item, out PrefabGUID itemGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve requirement item: '{req.Item}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve requirement item: '{req.Item}', skipping.");
                 continue;
             }
 
@@ -144,7 +129,7 @@ public static class RecipeSystem
         {
             if (!PrefabNameResolver.TryResolve(output.Item, out PrefabGUID itemGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve output item: '{output.Item}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve output item: '{output.Item}', skipping.");
                 continue;
             }
 
@@ -154,10 +139,6 @@ public static class RecipeSystem
 
     // ── Optional buffer handler ───────────────────────────────────────────────
 
-    /// <summary>
-    /// Generic handler for optional buffers controlled by a bool flag.
-    /// If enabled is false, removes the buffer. If true, delegates to the apply action.
-    /// </summary>
     static void ApplyOptionalBuffer<T>(
         Entity recipeEntity,
         bool enabled,
@@ -174,7 +155,7 @@ public static class RecipeSystem
 
         if (list == null)
         {
-            LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Flag set to true but list is null, skipping.");
+            HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Flag set to true but list is null, skipping.");
             return;
         }
 
@@ -183,27 +164,26 @@ public static class RecipeSystem
 
     static void RemoveBuffer<T>(Entity recipeEntity, string recipeName) where T : class
     {
-        // Match list type to its corresponding ECS buffer type for removal.
         if (typeof(T) == typeof(List<RecipeRepairCost>))
         {
             if (recipeEntity.Has<ItemRepairBuffer>())
                 recipeEntity.Remove<ItemRepairBuffer>();
             else
-                LilithsLogger.Info(LOG_SOURCE, $"[{recipeName}] ItemRepairBuffer already absent, nothing to remove.");
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] ItemRepairBuffer already absent, nothing to remove.");
         }
         else if (typeof(T) == typeof(List<RecipeUnitOutput>))
         {
             if (recipeEntity.Has<RecipeOutputUnitBuffer>())
                 recipeEntity.Remove<RecipeOutputUnitBuffer>();
             else
-                LilithsLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeOutputUnitBuffer already absent, nothing to remove.");
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeOutputUnitBuffer already absent, nothing to remove.");
         }
         else if (typeof(T) == typeof(List<string>))
         {
             if (recipeEntity.Has<RecipeLinkBuffer>())
                 recipeEntity.Remove<RecipeLinkBuffer>();
             else
-                LilithsLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeLinkBuffer already absent, nothing to remove.");
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeLinkBuffer already absent, nothing to remove.");
         }
     }
 
@@ -220,7 +200,7 @@ public static class RecipeSystem
         {
             if (!PrefabNameResolver.TryResolve(cost.Item, out PrefabGUID itemGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve repair cost item: '{cost.Item}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve repair cost item: '{cost.Item}', skipping.");
                 continue;
             }
 
@@ -239,7 +219,7 @@ public static class RecipeSystem
         {
             if (!PrefabNameResolver.TryResolve(unit.Unit, out PrefabGUID unitGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve unit output: '{unit.Unit}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve unit output: '{unit.Unit}', skipping.");
                 continue;
             }
 
@@ -254,11 +234,11 @@ public static class RecipeSystem
 
         buffer.Clear();
 
-        foreach (var link in recipeLinks)
+        foreach (var linkName in recipeLinks)
         {
-            if (!PrefabNameResolver.TryResolve(link, out PrefabGUID linkGuid))
+            if (!PrefabNameResolver.TryResolve(linkName, out PrefabGUID linkGuid))
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve recipe link: '{link}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"[{recipeName}] Could not resolve recipe link: '{linkName}', skipping.");
                 continue;
             }
 

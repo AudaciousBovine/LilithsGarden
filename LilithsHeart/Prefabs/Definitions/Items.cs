@@ -1,6 +1,6 @@
 using Stunlock.Core;
 
-namespace LilithsHeart.Resources.Prefabs;
+namespace LilithsHeart.Prefabs.Definitions;
 
 public static class Items
 {

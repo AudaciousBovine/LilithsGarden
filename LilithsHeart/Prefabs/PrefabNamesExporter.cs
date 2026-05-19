@@ -1,13 +1,19 @@
 using System.Reflection;
 using System.Text.Json;
 using Stunlock.Core;
-using LilithsHeart.Resources.Prefabs;
+using LilithsHeart.Config;
+using LilithsHeart.Prefabs.Definitions;
 
-namespace LilithsHeart.Systems;
+namespace LilithsHeart.Prefabs;
 
 /// <summary>
 /// Generates and maintains the LilithsHeart/Names/*.json files by reflecting over
-/// all static prefab registry classes in the LilithsHeart.Resources.Prefabs namespace.
+/// all static prefab definition classes in the LilithsHeart.Prefabs.Definitions namespace.
+///
+/// [CHANGED] Renamed from PrefabNamesExporter → PrefabNameExporter (singular).
+///           Moved from Systems/ → Prefabs/ alongside PrefabNameResolver.
+///           Namespace updated: LilithsHeart.Systems → LilithsHeart.Prefabs.
+///           Definitions namespace updated: LilithsHeart.Resources.Prefabs → LilithsHeart.Prefabs.Definitions.
 ///
 /// Design — merge strategy:
 ///   - On every boot, each registry class is reflected and a fresh entry set is built.
@@ -21,24 +27,18 @@ namespace LilithsHeart.Systems;
 ///   - Called from Heart.OnInitialize() before PrefabNameResolver.Initialize() so
 ///     the files are ready to be consumed in the same boot cycle.
 ///
-/// Performance:
-///   - Reflection runs once at startup; zero cost after initialization.
-///   - One file read + one file write per registry class per boot. These are small
-///     JSON files so the I/O cost is negligible compared to world load time.
-///   - JsonSerializer with WriteIndented for human-readability; acceptable at startup.
+/// [PERFORMANCE] Reflection runs once at startup; zero cost after initialization.
+///               One file read + one file write per registry class per boot.
+///               These are small JSON files — I/O cost is negligible vs world load time.
 /// </summary>
-public static class PrefabNamesExporter
+public static class PrefabNameExporter
 {
-    private const string LOG_SOURCE = "LilithsHeart.PrefabNamesExporter";
+    private const string LOG_SOURCE = "LilithsHeart.PrefabNameExporter";
 
-    // The namespace containing all prefab registry classes.
-    private const string PrefabNamespace = "LilithsHeart.Resources.Prefabs";
+    // [CHANGED] Namespace string updated to match renamed Prefabs/Definitions folder.
+    private const string PrefabNamespace = "LilithsHeart.Prefabs.Definitions";
 
-    private static readonly string OutputDir = Path.Combine(
-        BepInEx.Paths.ConfigPath,
-        "LilithsHeart",
-        "Names"
-    );
+    private static readonly string OutputDir = HeartPaths.NamesDir;
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -51,7 +51,7 @@ public static class PrefabNamesExporter
     };
 
     /// <summary>
-    /// Scans all prefab registry classes in the Prefabs namespace and writes a merged
+    /// Scans all prefab registry classes in Prefabs/Registry/ and writes a merged
     /// JSON file for each one. Existing NewName values on disk are preserved.
     /// </summary>
     public static void Export()
@@ -59,8 +59,8 @@ public static class PrefabNamesExporter
         Directory.CreateDirectory(OutputDir);
 
         // Reflect over the executing assembly to find all static classes in the
-        // prefab registry namespace. This includes Items, Weapons, Equipment,
-        // Stations, Recipes, and Unsorted — and any future classes — automatically.
+        // prefab registry namespace. This includes all registry classes automatically —
+        // no manual registration needed when new registry classes are added.
         var registryTypes = Assembly.GetExecutingAssembly()
             .GetTypes()
             .Where(t =>
@@ -72,52 +72,48 @@ public static class PrefabNamesExporter
 
         if (registryTypes.Count == 0)
         {
-            LilithsLogger.Warning(LOG_SOURCE, "No prefab registry classes found. Nothing to export.");
+            HeartLogger.Warning(LOG_SOURCE, "No prefab registry classes found. Nothing to export.");
             return;
         }
 
-        int filesWritten = 0;
-        int newEntries = 0;
-        int removedEntries = 0;
+        int filesWritten    = 0;
+        int newEntries      = 0;
+        int removedEntries  = 0;
 
         foreach (var type in registryTypes)
         {
             string filePath = Path.Combine(OutputDir, $"{type.Name}.json");
 
-            // Build fresh entries from the current code — these are the ground truth.
+            // Build fresh entries from code — these are always the ground truth.
             var freshEntries = BuildEntries(type);
 
             if (freshEntries.Count == 0)
             {
-                LilithsLogger.Warning(LOG_SOURCE, $"'{type.Name}' has no PrefabGUID fields — skipping.");
+                HeartLogger.Warning(LOG_SOURCE, $"'{type.Name}' has no PrefabGUID fields — skipping.");
                 continue;
             }
 
-            // [CHANGED] Merge strategy replaces skip-if-exists.
-            //           Read the existing file (if any) and carry forward any NewName
-            //           values the admin has set. OriginalName is always taken from code.
+            // Merge strategy: read the existing file (if any) and carry forward
+            // any NewName values the admin has set. OriginalName is always from code.
             if (File.Exists(filePath))
             {
                 var (merged, added, removed) = MergeWithExisting(filePath, freshEntries, type.Name);
-                freshEntries = merged;
-                newEntries += added;
-                removedEntries += removed;
+                freshEntries    = merged;
+                newEntries      += added;
+                removedEntries  += removed;
             }
 
             WriteFile(filePath, freshEntries, type.Name);
             filesWritten++;
         }
 
-        LilithsLogger.Info(LOG_SOURCE,
+        HeartLogger.Info(LOG_SOURCE,
             $"Export complete. Files written: {filesWritten}, New entries: {newEntries}, Removed entries: {removedEntries}.");
     }
 
     /// <summary>
     /// Reads the existing JSON file and merges its NewName values into the fresh entries.
-    /// - Fresh entries (from code) are the authority for which GUIDs exist.
-    /// - Existing NewName values are carried forward where the GUID still exists in code.
-    /// - GUIDs present on disk but absent from code are dropped (removed entries).
-    /// - GUIDs present in code but absent from disk are added (new entries).
+    /// GUIDs absent from code are dropped; GUIDs new in code are added.
     /// Returns the merged dictionary and counts of added/removed entries for logging.
     /// </summary>
     static (Dictionary<string, PrefabNameEntry> merged, int added, int removed) MergeWithExisting(
@@ -134,19 +130,17 @@ public static class PrefabNamesExporter
         }
         catch (Exception ex)
         {
-            // If the file is malformed, log and proceed with fresh entries only.
-            // The file will be overwritten with clean data.
-            LilithsLogger.Warning(LOG_SOURCE, $"Could not read '{typeName}.json' for merge, regenerating: {ex.Message}");
+            // Malformed file — proceed with fresh entries and overwrite cleanly.
+            HeartLogger.Warning(LOG_SOURCE, $"Could not read '{typeName}.json' for merge, regenerating: {ex.Message}");
             return (freshEntries, freshEntries.Count, 0);
         }
 
         if (existingEntries == null)
             return (freshEntries, freshEntries.Count, 0);
 
-        int added = 0;
+        int added   = 0;
         int removed = existingEntries.Keys.Count(k => !freshEntries.ContainsKey(k));
 
-        // Walk the fresh entries (from code) and carry forward any existing NewName.
         foreach (var (key, freshEntry) in freshEntries)
         {
             if (existingEntries.TryGetValue(key, out var existingEntry))
@@ -156,13 +150,13 @@ public static class PrefabNamesExporter
             }
             else
             {
-                // GUID is new in code — it wasn't in the file before.
+                // GUID is new in code — wasn't in the file before.
                 added++;
             }
         }
 
         if (added > 0 || removed > 0)
-            LilithsLogger.Info(LOG_SOURCE,
+            HeartLogger.Info(LOG_SOURCE,
                 $"'{typeName}.json': +{added} new, -{removed} removed entries.");
 
         return (freshEntries, added, removed);
@@ -186,19 +180,15 @@ public static class PrefabNamesExporter
             var guid = (PrefabGUID)field.GetValue(null)!;
             string key = guid.GuidHash.ToString();
 
-            // [CHANGED] Read NewName from [PrefabName] attribute if present.
-            //           Fields without the attribute get an empty NewName, which
-            //           is fine — they resolve by OriginalName or raw GUID instead.
-            var attr = field.GetCustomAttribute<PrefabNameAttribute>();
+            var attr    = field.GetCustomAttribute<PrefabNameAttribute>();
             string newName = attr?.NewName ?? string.Empty;
 
-            // Note: if the same GUID hash appears twice in one registry class
-            // (duplicate entry), the last field wins. This is a data issue in
-            // the registry, not a bug here — worth keeping in mind.
+            // Note: duplicate GUID hashes in one registry class will have the
+            // last field win. This is a data issue in the registry, not a bug here.
             entries[key] = new PrefabNameEntry
             {
                 OriginalName = field.Name,
-                NewName = newName
+                NewName      = newName
             };
         }
 
@@ -214,11 +204,11 @@ public static class PrefabNamesExporter
         {
             string json = JsonSerializer.Serialize(entries, WriteOptions);
             File.WriteAllText(filePath, json);
-            LilithsLogger.Debug(LOG_SOURCE, $"Wrote '{typeName}.json' ({entries.Count} entries).");
+            HeartLogger.Debug(LOG_SOURCE, $"Wrote '{typeName}.json' ({entries.Count} entries).");
         }
         catch (Exception ex)
         {
-            LilithsLogger.Error(LOG_SOURCE, $"Failed to write '{typeName}.json': {ex.Message}");
+            HeartLogger.Error(LOG_SOURCE, $"Failed to write '{typeName}.json': {ex.Message}");
         }
     }
 }
