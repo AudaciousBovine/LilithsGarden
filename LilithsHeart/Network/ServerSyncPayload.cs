@@ -16,26 +16,29 @@
 //    GameSettings, not a runtime GUID) so Soul can match a cached
 //    payload to the right server on reconnect.
 //
-//  • Gameplay settings are a snapshot of the values Heart has
-//    applied server-side. Soul uses these to patch client prefabs
-//    so the UI reflects actual server values (recipe costs, etc.).
+//  • [CHANGED] Gameplay settings removed from this payload.
+//    Heart is infrastructure-only. When gameplay modules need to
+//    sync values to Soul (e.g. LilithsArmory stat ranges), they
+//    will extend the payload at that point. For now the payload
+//    carries only localization overrides.
 //
 //  • Localization entries are the flattened contents of
 //    LocalizationConfig — keyed by prefab name, separate display
 //    name and tooltip fields. null means "use vanilla string".
 //
-//  • PayloadHash is an xxHash/SHA256 short hash of the serialized
-//    content. Soul compares this against the cached file's hash
-//    and skips re-writing and re-patching if nothing changed.
+//  • PayloadHash is a short SHA256 hash of the serialized content.
+//    Soul compares this against the cached file's hash and skips
+//    re-writing and re-patching if nothing changed.
 //    This avoids unnecessary disk I/O and prefab re-patching on
 //    every connect to the same server.
 //
-//  [PERFORMANCE] This class is serialized once on connect and
-//                deserialized once on the client. It is not
-//                updated or re-sent during a session.
-//                Keep fields flat — avoid nested collections
-//                that would bloat serialization cost.
+//  [PERFORMANCE] Serialized once on connect, deserialized once on
+//                the client. Not updated during a session.
+//                Keep fields flat — avoid nested collections that
+//                would bloat serialization cost.
 // ============================================================
+
+using LilithsHeart.Config;
 
 namespace LilithsHeart.Network;
 
@@ -60,17 +63,6 @@ public sealed class ServerSyncPayload
     /// Populated by <see cref="BuildHash"/> before sending.
     /// </summary>
     public string PayloadHash { get; set; } = string.Empty;
-
-    // ── Gameplay settings ───────────────────────────────────
-    // These mirror the server-side values Heart has applied.
-    // Soul uses them to patch client-side prefab data so the
-    // UI displays correct quantities, costs, and multipliers.
-
-    /// <summary>Server-configured starting inventory size.</summary>
-    public int StartingInventorySize { get; set; }
-
-    /// <summary>Server-configured global movement speed multiplier.</summary>
-    public float GlobalMovementSpeedMultiplier { get; set; }
 
     // ── Localization ────────────────────────────────────────
 
@@ -98,14 +90,12 @@ public sealed class ServerSyncPayload
     {
         var payload = new ServerSyncPayload
         {
-            ServerIdentity              = SanitizeFolderName(serverIdentity),
-            StartingInventorySize       = Config.HeartConfig.StartingInventorySize,
-            GlobalMovementSpeedMultiplier = Config.HeartConfig.GlobalPlayerMovementSpeedMultiplier,
+            ServerIdentity = SanitizeFolderName(serverIdentity),
 
-            // [ADDED] Flatten LocalizationConfig dictionaries into the payload.
-            //         ToList() + new Dictionary avoids sharing the live reference.
-            DisplayNameOverrides = new Dictionary<string, string>(Config.LocalizationConfig.DisplayNames),
-            TooltipOverrides     = new Dictionary<string, string>(Config.LocalizationConfig.Tooltips),
+            // Flatten LocalizationConfig dictionaries into the payload.
+            // new Dictionary() avoids sharing the live reference with LocalizationConfig.
+            DisplayNameOverrides = new Dictionary<string, string>(LocalizationConfig.DisplayNames),
+            TooltipOverrides     = new Dictionary<string, string>(LocalizationConfig.Tooltips),
         };
 
         payload.PayloadHash = payload.BuildHash();
@@ -118,15 +108,13 @@ public sealed class ServerSyncPayload
     /// </summary>
     public string BuildHash()
     {
-        // [PERFORMANCE] We serialize to JSON to get a canonical string, then hash it.
-        //               This runs once per connect — cost is acceptable.
+        // [PERFORMANCE] Serializes to JSON for a canonical string, then hashes it.
+        //               Runs once per connect — cost is acceptable.
         //               If payload size grows significantly, switch to a field-by-field
         //               hash to avoid the intermediate JSON allocation.
         var content = System.Text.Json.JsonSerializer.Serialize(new
         {
             ServerIdentity,
-            StartingInventorySize,
-            GlobalMovementSpeedMultiplier,
             DisplayNameOverrides,
             TooltipOverrides,
         });
