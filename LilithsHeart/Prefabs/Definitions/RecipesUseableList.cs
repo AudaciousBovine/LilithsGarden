@@ -1,0 +1,71 @@
+using Stunlock.Core;
+
+namespace LilithsHeart.Prefabs.Definitions;
+
+public static class RecipesUsableList
+{
+
+    public static readonly PrefabGUID Recipe_Consumable_BarrelDisguise01 = new(-108869773);
+    public static readonly PrefabGUID Recipe_Consumable_DuskCaller = new(232213040);
+    public static readonly PrefabGUID Recipe_Consumable_EMP_T01 = new(164757222);
+    public static readonly PrefabGUID Recipe_Consumable_EmptyBottle_T02_Crafting = new(-97893307);
+    public static readonly PrefabGUID Recipe_Consumable_EmptyBottle_T02_Refinement = new(461575192);
+    public static readonly PrefabGUID Recipe_Consumable_Explosives_Major_T02 = new(-1848951671);
+    public static readonly PrefabGUID Recipe_Consumable_Explosives_Major_T03_Trader = new(-752799345);
+    public static readonly PrefabGUID Recipe_Consumable_Explosives_Minor_T01 = new(-854411210);
+    public static readonly PrefabGUID Recipe_Consumable_Explosives_Minor_T01_Trader = new(-149394540);
+    public static readonly PrefabGUID Recipe_Consumable_FireResistancePotion_T01 = new(-1265439368);
+    public static readonly PrefabGUID Recipe_Consumable_GarlicResistancePotion_T01 = new(1602635578);
+    public static readonly PrefabGUID Recipe_Consumable_GarlicResistancePotion_T01_Trader = new(-767965323);
+    public static readonly PrefabGUID Recipe_Consumable_GarlicResistancePotion_T02 = new(600697104);
+    public static readonly PrefabGUID Recipe_Consumable_GarlicResistancePotion_T02_Trader = new(177026075);
+    public static readonly PrefabGUID Recipe_Consumable_HealingPotion_T01 = new(223228069);
+    public static readonly PrefabGUID Recipe_Consumable_HealingPotion_T01_Trader = new(1446468348);
+    public static readonly PrefabGUID Recipe_Consumable_HealingPotion_T02 = new(-1715555190);
+    public static readonly PrefabGUID Recipe_Consumable_HealingPotion_T02_Trader = new(-1089714492);
+    public static readonly PrefabGUID Recipe_Consumable_HolyResistancePotion_T01 = new(2121527776);
+    public static readonly PrefabGUID Recipe_Consumable_HolyResistancePotion_T01_Trader = new(573978764);
+    public static readonly PrefabGUID Recipe_Consumable_HolyResistancePotion_T02 = new(-1672850870);
+    public static readonly PrefabGUID Recipe_Consumable_IrradiantGruel = new(-1031042460);
+    public static readonly PrefabGUID Recipe_Consumable_PhysicalPowerPotion_T01 = new(2007269714);
+    public static readonly PrefabGUID Recipe_Consumable_PhysicalPowerPotion_T01_Trader = new(-1373956725);
+    public static readonly PrefabGUID Recipe_Consumable_PhysicalPowerPotion_T02 = new(-1336809713);
+    public static readonly PrefabGUID Recipe_Consumable_PrisonPotion = new(1839006118);
+    public static readonly PrefabGUID Recipe_Consumable_PrisonPotion_Bloodwine = new(1930190516);
+    public static readonly PrefabGUID Recipe_Consumable_Rat = new(-1521588244);
+    public static readonly PrefabGUID Recipe_Consumable_Salve_Vermin = new(2119570180);
+    public static readonly PrefabGUID Recipe_Consumable_Siege_StoneGolem_T02 = new(-2012301598);
+    public static readonly PrefabGUID Recipe_Consumable_SilverResistancePotion_T01 = new(-1391967609);
+    public static readonly PrefabGUID Recipe_Consumable_SilverResistancePotion_T02 = new(-878651797);
+    public static readonly PrefabGUID Recipe_Consumable_SpellPowerPotion_T01 = new(1292082146);
+    public static readonly PrefabGUID Recipe_Consumable_SpellPowerPotion_T02 = new(-739203329);
+    public static readonly PrefabGUID Recipe_Consumable_SunResistancePotion_T01 = new(-339125757);
+    public static readonly PrefabGUID Recipe_Consumable_Waterskin_Leather_Crafting = new(-1609862569);
+    public static readonly PrefabGUID Recipe_Consumable_Waterskin_Leather_Refinement = new(37553703);
+    public static readonly PrefabGUID Recipe_Consumable_Waterskin_ThickLeather_Crafting = new(-457097974);
+    public static readonly PrefabGUID Recipe_Consumable_Waterskin_ThickLeather_Refinement = new(882503740);
+    public static readonly PrefabGUID Recipe_Consumable_WranglerPotion_T01 = new(-1728254159);
+    public static readonly PrefabGUID Recipe_DuelFlag = new(-728009045);
+    public static readonly PrefabGUID Recipe_Elixir_Bat_T01 = new(-1617853548);
+    public static readonly PrefabGUID Recipe_Elixir_Beast_T01 = new(-663811339);
+    public static readonly PrefabGUID Recipe_Elixir_Blasphemous_T01 = new(654360877);
+    public static readonly PrefabGUID Recipe_Elixir_Crow_T01 = new(155374920);
+    public static readonly PrefabGUID Recipe_Elixir_Prowler_T01 = new(79253993);
+    public static readonly PrefabGUID Recipe_Elixir_Raven_T01 = new(-109469679);
+    public static readonly PrefabGUID Recipe_Elixir_Twisted_T01 = new(-2138549072);
+    public static readonly PrefabGUID Recipe_Elixir_Werewolf_T01 = new(198966224);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Blood = new(-1487423952);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Chaos = new(-338717708);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Frost = new(-789668816);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Illusion = new(405829513);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Storm = new(-2034775483);
+    public static readonly PrefabGUID Recipe_WeaponCoating_Unholy = new(216972181);
+    public static readonly PrefabGUID Recipe_Seed_BloodRose_T01_Trader = new(1930056104);
+    public static readonly PrefabGUID Recipe_Seed_FireBlossom_T01_Trader = new(-693582888);
+    public static readonly PrefabGUID Recipe_Seed_GhostShroom_T03_Trader = new(-56026974);
+    public static readonly PrefabGUID Recipe_Seed_HellsClarion_T01_Trader = new(-1079722820);
+    public static readonly PrefabGUID Recipe_Seed_Lotus_T03_Trader = new(-1660279142);
+    public static readonly PrefabGUID Recipe_Seed_MourningLily_T01_Trader = new(-1271741418);
+    public static readonly PrefabGUID Recipe_Seed_SnowFlower_T01_Trader = new(640919389);
+    public static readonly PrefabGUID Recipe_Seed_SunFlower_T02_Trader = new(-486247420);
+}

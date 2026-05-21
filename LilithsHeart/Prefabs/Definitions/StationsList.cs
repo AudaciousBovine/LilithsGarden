@@ -2,7 +2,7 @@ using Stunlock.Core;
 
 namespace LilithsHeart.Prefabs.Definitions;
 
-public static class Stations
+public static class StationsList
 {
 
 ////////////////////////////////////////////////////////////
