@@ -45,21 +45,23 @@ public static class SyncSender
 {
     private const string LOG_SOURCE = "LilithsHeart.SyncSender";
 
-    // Prefix Soul uses to identify LilithsGarden messages in chat stream.
     public const string CHUNK_PREFIX = "[[LG:";
     public const string CHUNK_END    = "[[LG:end]]";
 
-    // FixedString512Bytes fits 510 chars. Reserve ~12 chars for the
-    // [[LG:NNN]] prefix, leaving 450 for content with UTF-8 headroom.
     private const int MAX_CHUNK_CONTENT = 450;
 
-    // [PERFORMANCE] Static readonly component arrays — allocated once.
+    // [CHANGED] Added SendEventToUser to the archetype.
+    //           V Rising's network event system requires this component
+    //           to route the event to the correct client. Without it,
+    //           the engine throws "Incorrect usage of SendEvent detected."
+    // [PERFORMANCE] Static readonly — allocated once, reused per send.
     static readonly ComponentType[] _networkEventComponents =
     [
         ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>()),
         ComponentType.ReadOnly(Il2CppType.Of<NetworkEventType>()),
         ComponentType.ReadOnly(Il2CppType.Of<SendNetworkEventTag>()),
-        ComponentType.ReadOnly(Il2CppType.Of<ChatMessageServerEvent>())
+        ComponentType.ReadOnly(Il2CppType.Of<ChatMessageServerEvent>()),
+        ComponentType.ReadOnly(Il2CppType.Of<SendEventToUser>()),   // [ADDED] required routing component
     ];
 
     static readonly NetworkEventType _networkEventType = new()
@@ -75,7 +77,13 @@ public static class SyncSender
     /// Sends the cached sync payload to a connecting client.
     /// Called from ClientConnectPatch.
     /// </summary>
-    public static void SendSyncToClient(Entity userEntity, Entity characterEntity)
+    // [CHANGED] Added userIndex (int) parameter.
+    //           SendEventToUser.UserIndex is typed int — the approved user slot index
+    //           from ServerBootstrapSystem._ApprovedUsersLookup, not a NetworkId struct.
+    //           The caller (ClientConnectPatch) already has this value from the
+    //           _NetEndPointToApprovedUserIndex lookup so we thread it through
+    //           rather than re-resolving it here.
+    public static void SendSyncToClient(Entity userEntity, Entity characterEntity, int userIndex)
     {
         var json = SyncPayloadCache.CachedJson;
 
@@ -88,17 +96,20 @@ public static class SyncSender
 
         try
         {
-            var chunks = Chunkify(json);
-            var em     = Heart.EntityManager;
+            var chunks    = Chunkify(json);
+            var em        = Heart.EntityManager;
+            // Read NetworkId once — reused for every chunk's ChatMessageServerEvent.FromUser.
+            // userIndex is passed separately for SendEventToUser routing.
+            var userNetId = userEntity.Read<NetworkId>();
 
             for (int i = 0; i < chunks.Count; i++)
             {
-                SendSystemMessage(em, userEntity, characterEntity,
+                SendSystemMessage(em, userEntity, characterEntity, userNetId, userIndex,
                     $"{CHUNK_PREFIX}{i}]]{chunks[i]}");
             }
 
             // End sentinel — tells Soul to reassemble and process.
-            SendSystemMessage(em, userEntity, characterEntity, CHUNK_END);
+            SendSystemMessage(em, userEntity, characterEntity, userNetId, userIndex, CHUNK_END);
 
             HeartLogger.Info(LOG_SOURCE,
                 $"Sync payload sent in {chunks.Count} chunk(s) + end sentinel.");
@@ -111,10 +122,15 @@ public static class SyncSender
 
     // ── Internal ─────────────────────────────────────────────
 
+    // [CHANGED] Added userIndex (int) parameter to match SendEventToUser.UserIndex type.
+    //           Previous version passed userNetId (NetworkId) to UserIndex which is
+    //           typed int — that was the CS0029 implicit conversion error.
     static void SendSystemMessage(
         EntityManager em,
         Entity userEntity,
         Entity characterEntity,
+        NetworkId userNetId,
+        int userIndex,
         string text)
     {
         // Defensive truncation — should never trigger if MAX_CHUNK_CONTENT is correct.
@@ -125,7 +141,7 @@ public static class SyncSender
             MessageText   = new FixedString512Bytes(text),
             MessageType   = ServerChatMessageType.System,
             FromCharacter = characterEntity.Read<NetworkId>(),
-            FromUser      = userEntity.Read<NetworkId>(),
+            FromUser      = userNetId,
             TimeUTC       = DateTime.UtcNow.Ticks
         };
 
@@ -133,6 +149,12 @@ public static class SyncSender
         entity.Write(new FromCharacter { Character = characterEntity, User = userEntity });
         entity.Write(_networkEventType);
         entity.Write(chatEvent);
+
+        // [CHANGED] UserIndex is int — the approved user slot index from
+        //           _ApprovedUsersLookup, not a NetworkId. This is what
+        //           V Rising's network event system uses to route the
+        //           event to the correct client connection.
+        entity.Write(new SendEventToUser { UserIndex = userIndex });
     }
 
     static List<string> Chunkify(string input)

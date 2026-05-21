@@ -56,11 +56,15 @@ internal static class ClientConnectPatch
                 return;
             }
 
+            // [CHANGED] userIndex passed to SendSyncToClient.
+            //           SendEventToUser.UserIndex requires the int slot index from
+            //           _ApprovedUsersLookup, which we already have here from the
+            //           _NetEndPointToApprovedUserIndex lookup. Thread it through
+            //           rather than re-resolving it inside SyncSender.
+
             var serverClient  = __instance._ApprovedUsersLookup[userIndex];
             Entity userEntity = serverClient.UserEntity;
 
-            // Resolve the player's character entity from their User component.
-            // Character may be null if the player hasn't spawned yet — guard it.
             var user = userEntity.Read<User>();
             Entity characterEntity = user.LocalCharacter.GetEntityOnServer();
 
@@ -75,7 +79,7 @@ internal static class ClientConnectPatch
             HeartLogger.Info(LOG_SOURCE,
                 $"Client '{user.CharacterName}' connected — sending sync payload.");
 
-            SyncSender.SendSyncToClient(userEntity, characterEntity);
+            SyncSender.SendSyncToClient(userEntity, characterEntity, userIndex); // [CHANGED] pass userIndex
         }
         catch (Exception ex)
         {
