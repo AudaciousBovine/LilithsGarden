@@ -45,6 +45,23 @@ A modular V Rising mod suite
         PrefabNameExporter.cs - Reads Names > *.json configs on startup to see what GUID has what configured name
     HeartPlugin.cs - ENTRY POINT, Does the initial loads of patches, logger, config, eventbus, registry
 
+[LilithsHeart] >
+    [Config] >
+
+    [Foundation] >
+
+    [Network] >
+
+    [Patches] >
+
+    [Services] > 
+
+    SoulPlugin.cs
+
+
+
+
+
 [LilithsCookbook] >
     [Config] >
         CookbookConfig.cs - Config File

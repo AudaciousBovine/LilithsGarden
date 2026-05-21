@@ -1,6 +1,7 @@
 using HarmonyLib;
 using ProjectM;
 using ProjectM.Network;
+using Stunlock.Network;
 using Unity.Entities;
 using LilithsHeart.Foundation;
 using LilithsHeart.Network;

@@ -124,8 +124,8 @@ public static class SyncSender
         {
             MessageText   = new FixedString512Bytes(text),
             MessageType   = ServerChatMessageType.System,
-            FromCharacter = characterEntity.GetNetworkId(),
-            FromUser      = userEntity.GetNetworkId(),
+            FromCharacter = characterEntity.Read<NetworkId>(),
+            FromUser      = userEntity.Read<NetworkId>(),
             TimeUTC       = DateTime.UtcNow.Ticks
         };
 

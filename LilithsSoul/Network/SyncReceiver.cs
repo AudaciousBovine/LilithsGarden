@@ -1,7 +1,7 @@
 using System.Text.Json;
 using LilithsSoul.Config;
 using LilithsSoul.Foundation;
-using LilithsSoul.Localization;
+using LilithsSoul.Services;
 
 // ============================================================
 //  SyncReceiver — LilithsSoul

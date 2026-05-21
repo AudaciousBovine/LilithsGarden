@@ -82,22 +82,9 @@ public static class Heart
 
     static string ResolveServerIdentity()
     {
-        try
-        {
-            // GameSettings holds the server name configured by the server operator.
-            // This is stable across restarts and human-readable — ideal as a folder key.
-            var em       = EntityManager;
-            var settings = em.CreateEntityQuery(typeof(GameSettings))
-                             .GetSingleton<GameSettings>();
-
-            var name = settings.ServerName.ToString();
-            return string.IsNullOrWhiteSpace(name) ? "LilithsGarden" : name;
-        }
-        catch
-        {
-            HeartLogger.Warning(LOG_SOURCE,
-                "Could not read server name from GameSettings — using 'LilithsGarden' as identity.");
-            return "LilithsGarden";
-        }
+        // Read server name from HeartConfig — set by the server operator
+        // in LilithsHeart.cfg. Defaults to "LilithsGarden" if not configured.
+        var name = HeartConfig.ServerName.Value;
+        return string.IsNullOrWhiteSpace(name) ? "LilithsGarden" : name;
     }
 }

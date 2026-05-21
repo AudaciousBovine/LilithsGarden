@@ -1,5 +1,7 @@
 using HarmonyLib;
 using ProjectM.Network;
+using ProjectM.UI;
+using Unity.Collections;
 using Unity.Entities;
 using LilithsSoul.Foundation;
 using LilithsSoul.Network;
@@ -7,32 +9,23 @@ using LilithsSoul.Network;
 // ============================================================
 //  ClientChatSystemPatch — LilithsSoul
 //
-//  Intercepts incoming chat messages on the client to extract
+//  Intercepts incoming server messages on the client to extract
 //  LilithsGarden sync payload chunks before they reach the UI.
 //
-//  Hook target: ClientChatSystem.OnUpdate (postfix)
-//  ─────────────────────────────────────────────────
-//  ClientChatSystem processes ChatMessageServerEvent entities
-//  each frame. We read the same query after the system runs
-//  and check each message for our [[LG:N]] prefix.
+//  Hook target: ClientChatSystem.OnUpdate (prefix)
+//  ──────────────────────────────────────────────
+//  Uses __instance._ReceiveChatMessagesQuery directly — the same
+//  query the system itself processes. This is the established
+//  pattern from ZUI and Eclipse.
 //
-//  Why postfix on OnUpdate instead of the event itself?
-//  ─────────────────────────────────────────────────────
-//  This mirrors the pattern used by Eclipse (ClientChatSystemPatch)
-//  and ZUI. The system reads a query of ChatMessageServerEvent
-//  entities — we do the same query after the system runs.
-//  Patching OnUpdate postfix is safe and doesn't interfere with
-//  the game's own chat rendering.
+//  Prefix (not postfix) so we can destroy consumed entities
+//  before ClientChatSystem processes them, preventing chunk
+//  text from ever appearing in the chat window.
 //
-//  Consumed messages:
-//  ──────────────────
-//  Messages identified as LilithsGarden chunks are passed to
-//  SyncReceiver. We then destroy the entity so the chunk text
-//  never appears in the player's chat window.
-//
-//  [PERFORMANCE] Runs every frame but only does a string.StartsWith
-//                check per message. Typically zero messages per frame
-//                outside of a connect event — negligible cost.
+//  [PERFORMANCE] Per-frame cost is negligible — zero entities
+//                in _ReceiveChatMessagesQuery outside of a connect
+//                event. The string.StartsWith check is effectively
+//                free when there are no incoming messages.
 // ============================================================
 
 namespace LilithsSoul.Patches;
@@ -42,48 +35,32 @@ internal static class ClientChatSystemPatch
 {
     private const string LOG_SOURCE = "LilithsSoul.ClientChatSystemPatch";
 
-    [HarmonyPostfix]
-    static void Postfix(ClientChatSystem __instance)
+    [HarmonyPrefix]
+    static void Prefix(ClientChatSystem __instance)
     {
+        if (Soul.ClientWorld == null) return;
+
+        var entities = __instance._ReceiveChatMessagesQuery.ToEntityArray(Allocator.Temp);
+
         try
         {
-            var em = __instance.EntityManager;
-
-            // Query for system messages — same type Heart sends.
-            var query = em.CreateEntityQuery(
-                ComponentType.ReadOnly<ChatMessageServerEvent>());
-
-            var entities = query.ToEntityArray(Unity.Collections.Allocator.Temp);
-
-            try
+            foreach (var entity in entities)
             {
-                foreach (var entity in entities)
+                if (!entity.Has<ChatMessageServerEvent>()) continue;
+
+                var chatEvent   = entity.Read<ChatMessageServerEvent>();
+                string message  = chatEvent.MessageText.ToString();
+
+                if (SyncReceiver.TryHandleMessage(message))
                 {
-                    if (!em.HasComponent<ChatMessageServerEvent>(entity)) continue;
-
-                    var chatEvent = em.GetComponentData<ChatMessageServerEvent>(entity);
-
-                    // Only inspect system messages — player chat is a different type.
-                    if (chatEvent.MessageType != ServerChatMessageType.System) continue;
-
-                    string text = chatEvent.MessageText.Value;
-
-                    if (SyncReceiver.TryHandleMessage(text))
-                    {
-                        // Consumed — destroy entity so it doesn't appear in chat UI.
-                        em.DestroyEntity(entity);
-                    }
+                    // Consumed — destroy so chunk text never appears in chat UI.
+                    Soul.ClientWorld.EntityManager.DestroyEntity(entity);
                 }
             }
-            finally
-            {
-                entities.Dispose();
-                query.Dispose();
-            }
         }
-        catch (Exception ex)
+        finally
         {
-            SoulLogger.Error(LOG_SOURCE, $"ClientChatSystemPatch failed: {ex.Message}");
+            entities.Dispose();
         }
     }
 }

@@ -20,6 +20,7 @@ public static class HeartConfig
     private const string LOG_SOURCE = "LilithsHeart.HeartConfig";
 
     static ConfigEntry<bool> _debugLogging = null!;
+    public static ConfigEntry<string> ServerName { get; private set; } = null!;
 
     public static bool IsDebug => _debugLogging.Value;
 
@@ -31,6 +32,13 @@ public static class HeartConfig
             defaultValue: false,
             description:  "Enable verbose debug logging for LilithsHeart. " +
                           "Useful during development, disable on live servers."
+        );
+        ServerName = config.Bind(
+            section:      "General",
+            key:          "ServerName",
+            "LilithsGarden",
+            description:  "Unique name for this server. Used by Soul clients to cache server-specific " +
+                            "configs. Change this if you run multiple LilithsGarden servers."
         );
 
         HeartLogger.Info(LOG_SOURCE, $"HeartConfig loaded. Debug={IsDebug}");

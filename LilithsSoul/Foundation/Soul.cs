@@ -44,7 +44,9 @@ public static class Soul
             return null;
         }
     }
-
+    // [ADDED] Convenience accessor used by EntityExtensions.
+    // Throws if ClientWorld is null — callers should guard on ClientWorld first.
+    public static EntityManager EntityManager => ClientWorld!.EntityManager;
     /// <summary>
     /// Clears the cached world reference.
     /// Call when the client disconnects so the next access re-resolves.

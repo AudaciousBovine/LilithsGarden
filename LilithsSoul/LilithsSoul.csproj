@@ -9,7 +9,7 @@
       Update this path to match your V Rising client installation.
       Right-click V Rising in Steam > Manage > Browse local files to find it.
     -->
-    <OutputPath>C:\Program Files (x86)\Steam\steamapps\common\VRising\BepInEx\plugins</OutputPath>
+    <OutputPath>D:\My Programs\V Rising Dedicated Server Launcher\DedicatedServerLauncher\VRisingServer\BepInEx\plugins</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 </Project>
