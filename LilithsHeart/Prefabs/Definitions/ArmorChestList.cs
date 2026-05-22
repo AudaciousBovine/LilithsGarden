@@ -1,20 +1,3 @@
-// ============================================================
-//  ArmorChestList — LilithsHeart
-//  LilithsHeart/Prefabs/Definitions/ArmorChestList.cs
-//
-//  [CHANGED] Migrated from bare PrefabGUID + [PrefabName] attribute fields
-//            to PrefabDef records. Field names match the prefab string
-//            exactly. Names sourced from [PrefabName] attributes. All
-//            nullable fields shown explicitly.
-//
-//  NOTE: Source file was named "ArorChestList" — corrected to "ArmorChestList"
-//        here. Rename the source file to match if not already done.
-//
-//  [PERFORMANCE] Static readonly PrefabDef fields — initialised once at
-//                class load, zero per-frame cost. Stack-allocated structs,
-//                no heap pressure.
-// ============================================================
-
 using Stunlock.Core;
 
 namespace LilithsHeart.Prefabs.Definitions;

@@ -1,17 +1,3 @@
-// ============================================================
-//  BagList — LilithsHeart
-//  LilithsHeart/Prefabs/Definitions/BagList.cs
-//
-//  [CHANGED] Field names now match the prefab string exactly, consistent
-//            with the bare PrefabGUID convention used before migration.
-//            All nullable fields (NameKey, DescKey) are shown explicitly
-//            as null until looked up from game data.
-//
-//  [PERFORMANCE] Static readonly PrefabDef fields — initialised once at
-//                class load, zero per-frame cost. Stack-allocated structs,
-//                no heap pressure.
-// ============================================================
-
 using Stunlock.Core;
 
 namespace LilithsHeart.Prefabs.Definitions;

@@ -1,158 +1,772 @@
+// ============================================================
+//  ItemsUsableList — LilithsHeart
+//  LilithsHeart/Prefabs/Definitions/ItemsUsableList.cs
+//
+//  [CHANGED] Migrated from bare PrefabGUID fields to PrefabDef records.
+//            Field names match the prefab string exactly. Names sourced
+//            from original comments where present; null elsewhere.
+//            All nullable fields shown explicitly.
+//
+//  [PERFORMANCE] Static readonly PrefabDef fields — initialised once at
+//                class load, zero per-frame cost. Stack-allocated structs,
+//                no heap pressure.
+// ============================================================
+
 using Stunlock.Core;
 
 namespace LilithsHeart.Prefabs.Definitions;
 
 public static class ItemsUsableList
 {
-// BONE CASTLE KEY LEVEL 1
-    public static readonly PrefabGUID Item_Ingredient_CastleKey_T01 = new(960030104);
+    // ── Castle Keys ───────────────────────────────────────────────────────────
 
-// COPPER CASTLE KEY LEVEL 2
-    public static readonly PrefabGUID Item_Ingredient_CastleKey_T02 = new(724428437);
+    public static readonly PrefabDef Item_Ingredient_CastleKey_T01 = new()
+    {
+        Name    = "BoneCastleKey",
+        Guid    = new(960030104),
+        Prefab  = "Item_Ingredient_CastleKey_T01",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// IRON CASTLE KEY LEVEL 3
-    public static readonly PrefabGUID Item_Ingredient_CastleKey_T03 = new(-950839771);
+    public static readonly PrefabDef Item_Ingredient_CastleKey_T02 = new()
+    {
+        Name    = "CopperCastleKey",
+        Guid    = new(724428437),
+        Prefab  = "Item_Ingredient_CastleKey_T02",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// GOLDEN CASTLE KEY LEVEL 4/5
-    public static readonly PrefabGUID Item_Ingredient_CastleKey_T04 = new(551949280);
+    public static readonly PrefabDef Item_Ingredient_CastleKey_T03 = new()
+    {
+        Name    = "IronCastleKey",
+        Guid    = new(-950839771),
+        Prefab  = "Item_Ingredient_CastleKey_T03",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// BLOOD ROSE SEED
-    public static readonly PrefabGUID Item_Building_Plants_BloodRose_Seed = new(531984050);
+    public static readonly PrefabDef Item_Ingredient_CastleKey_T04 = new()
+    {
+        Name    = "GoldenCastleKey",
+        Guid    = new(551949280),
+        Prefab  = "Item_Ingredient_CastleKey_T04",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// FIRE BLOSSOM SEED
-    public static readonly PrefabGUID Item_Building_Plants_FireBlossom_Seed = new(675013523);
+    // ── Plant Seeds ───────────────────────────────────────────────────────────
 
-// MOURNING LILY SEED
-    public static readonly PrefabGUID Item_Building_Plants_MourningLily_Seed = new(-1386314668);
+    public static readonly PrefabDef Item_Building_Plants_BloodRose_Seed = new()
+    {
+        Name    = "BloodRoseSeed",
+        Guid    = new(531984050),
+        Prefab  = "Item_Building_Plants_BloodRose_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// SNOWFLOWER SEED
-    public static readonly PrefabGUID Item_Building_Plants_SnowFlower_Seed = new(1985892973);
+    public static readonly PrefabDef Item_Building_Plants_FireBlossom_Seed = new()
+    {
+        Name    = "FireBlossomSeed",
+        Guid    = new(675013523),
+        Prefab  = "Item_Building_Plants_FireBlossom_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// HELL'S CLARION SPORES
-    public static readonly PrefabGUID Item_Building_Plants_HellsClarion_Seed = new(-1987586694);
+    public static readonly PrefabDef Item_Building_Plants_MourningLily_Seed = new()
+    {
+        Name    = "MourningLilySeed",
+        Guid    = new(-1386314668),
+        Prefab  = "Item_Building_Plants_MourningLily_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// COTTON SEED
-    public static readonly PrefabGUID Item_Building_Plants_Cotton_Seed = new(-1289010178);
+    public static readonly PrefabDef Item_Building_Plants_SnowFlower_Seed = new()
+    {
+        Name    = "SnowflowerSeed",
+        Guid    = new(1985892973),
+        Prefab  = "Item_Building_Plants_SnowFlower_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// PLAGUE BRIER SEEDS
-    public static readonly PrefabGUID Item_Building_Plants_PlagueBrier_Seed = new(-1495639636);
+    public static readonly PrefabDef Item_Building_Plants_HellsClarion_Seed = new()
+    {
+        Name    = "HellsClarionSpores",
+        Guid    = new(-1987586694),
+        Prefab  = "Item_Building_Plants_HellsClarion_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// SACRED GRAPE SEED
-    public static readonly PrefabGUID Item_Building_Plants_Grapes_Seed = new(-1681104075);
+    public static readonly PrefabDef Item_Building_Plants_Cotton_Seed = new()
+    {
+        Name    = "CottonSeed",
+        Guid    = new(-1289010178),
+        Prefab  = "Item_Building_Plants_Cotton_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// SUNFLOWER SEED
-    public static readonly PrefabGUID Item_Building_Plants_Sunflower_Seed = new(-473351958);
+    public static readonly PrefabDef Item_Building_Plants_PlagueBrier_Seed = new()
+    {
+        Name    = "PlagueBrierSeeds",
+        Guid    = new(-1495639636),
+        Prefab  = "Item_Building_Plants_PlagueBrier_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// GHOST SHROOM SPORES
-    public static readonly PrefabGUID Item_Building_Plants_GhostShroom_Seed = new(1762839393);
+    public static readonly PrefabDef Item_Building_Plants_Grapes_Seed = new()
+    {
+        Name    = "SacredGrapeSeed",
+        Guid    = new(-1681104075),
+        Prefab  = "Item_Building_Plants_Grapes_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// BLEEDING HEART SEED
-    public static readonly PrefabGUID Item_Building_Plants_BleedingHeart_Seed = new(-1463158090);
+    public static readonly PrefabDef Item_Building_Plants_Sunflower_Seed = new()
+    {
+        Name    = "SunflowerSeed",
+        Guid    = new(-473351958),
+        Prefab  = "Item_Building_Plants_Sunflower_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// CORRUPTED FLOWER SEED
-    public static readonly PrefabGUID Item_Building_Plants_CorruptedFlower_Seed = new(-410008482);
+    public static readonly PrefabDef Item_Building_Plants_GhostShroom_Seed = new()
+    {
+        Name    = "GhostShroomSpores",
+        Guid    = new(1762839393),
+        Prefab  = "Item_Building_Plants_GhostShroom_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// TRIPPY MUSHROOM SPORES
-    public static readonly PrefabGUID Item_Building_Plants_TrippyShroom_Seed = new(1915695899);
+    public static readonly PrefabDef Item_Building_Plants_BleedingHeart_Seed = new()
+    {
+        Name    = "BleedingHeartSeed",
+        Guid    = new(-1463158090),
+        Prefab  = "Item_Building_Plants_BleedingHeart_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// OAK SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Oak_Acorn = new(-626353315);
+    public static readonly PrefabDef Item_Building_Plants_CorruptedFlower_Seed = new()
+    {
+        Name    = "CorruptedFlowerSeed",
+        Guid    = new(-410008482),
+        Prefab  = "Item_Building_Plants_CorruptedFlower_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// PINE SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Spruce_Cone = new(1227483037);
+    public static readonly PrefabDef Item_Building_Plants_TrippyShroom_Seed = new()
+    {
+        Name    = "TrippyMushroomSpores",
+        Guid    = new(1915695899),
+        Prefab  = "Item_Building_Plants_TrippyShroom_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// CURSED SAPPLING
-    public static readonly PrefabGUID Item_Building_Sapling_AppleCursed_Seed = new(-1897495615);
+    // ── Tree Saplings ─────────────────────────────────────────────────────────
 
-// APPLE TREE SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_AppleTree_Seed = new(1226559814);
+    public static readonly PrefabDef Item_Building_Sapling_Oak_Acorn = new()
+    {
+        Name    = "OakSapling",
+        Guid    = new(-626353315),
+        Prefab  = "Item_Building_Sapling_Oak_Acorn",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// ASPEN SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Aspen_Seed = new(1996361886);
+    public static readonly PrefabDef Item_Building_Sapling_Spruce_Cone = new()
+    {
+        Name    = "PineSapling",
+        Guid    = new(1227483037),
+        Prefab  = "Item_Building_Sapling_Spruce_Cone",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// AUTUMN ASPEN SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_AspenAutum_Seed = new(-2035190786);
+    public static readonly PrefabDef Item_Building_Sapling_AppleCursed_Seed = new()
+    {
+        Name    = "CursedSapling",
+        Guid    = new(-1897495615),
+        Prefab  = "Item_Building_Sapling_AppleCursed_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// BIRCH SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Birch_Seed = new(1552240197);
+    public static readonly PrefabDef Item_Building_Sapling_AppleTree_Seed = new()
+    {
+        Name    = "AppleTreeSapling",
+        Guid    = new(1226559814),
+        Prefab  = "Item_Building_Sapling_AppleTree_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// AUTUMN BIRCH SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_BirchAutum_Seed = new(2000981302);
+    public static readonly PrefabDef Item_Building_Sapling_Aspen_Seed = new()
+    {
+        Name    = "AspenSapling",
+        Guid    = new(1996361886),
+        Prefab  = "Item_Building_Sapling_Aspen_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// CHERRY BLOSSOM SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Cherry_Blossom = new(1818351545);
+    public static readonly PrefabDef Item_Building_Sapling_AspenAutum_Seed = new()
+    {
+        Name    = "AutumnAspenSapling",
+        Guid    = new(-2035190786),
+        Prefab  = "Item_Building_Sapling_AspenAutum_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// WHITE CHERRY BLOSSOM SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_CherryWhite_Blossom = new(1738392650);
+    public static readonly PrefabDef Item_Building_Sapling_Birch_Seed = new()
+    {
+        Name    = "BirchSapling",
+        Guid    = new(1552240197),
+        Prefab  = "Item_Building_Sapling_Birch_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// CYPRESS SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_Cypress_Seed = new(-1043479168);
+    public static readonly PrefabDef Item_Building_Sapling_BirchAutum_Seed = new()
+    {
+        Name    = "AutumnBirchSapling",
+        Guid    = new(2000981302),
+        Prefab  = "Item_Building_Sapling_BirchAutum_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// GLOOMY SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_GloomTree_Seed = new(-1800289670);
+    public static readonly PrefabDef Item_Building_Sapling_Cherry_Blossom = new()
+    {
+        Name    = "CherryBlossomSapling",
+        Guid    = new(1818351545),
+        Prefab  = "Item_Building_Sapling_Cherry_Blossom",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// WEEPING WILLOW SAPLING
-    public static readonly PrefabGUID Item_Building_Sapling_WeepingWillow = new(858598154);
+    public static readonly PrefabDef Item_Building_Sapling_CherryWhite_Blossom = new()
+    {
+        Name    = "WhiteCherryBlossomSapling",
+        Guid    = new(1738392650),
+        Prefab  = "Item_Building_Sapling_CherryWhite_Blossom",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// DUELING BANNER
-    public static readonly PrefabGUID Item_Building_DuelFlag = new(-262414476);
+    public static readonly PrefabDef Item_Building_Sapling_Cypress_Seed = new()
+    {
+        Name    = "CypressSapling",
+        Guid    = new(-1043479168),
+        Prefab  = "Item_Building_Sapling_Cypress_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// MINOR EXPLOSIVE BOX
-    public static readonly PrefabGUID Item_Building_Explosives_T01 = new(1779299585);
+    public static readonly PrefabDef Item_Building_Sapling_GloomTree_Seed = new()
+    {
+        Name    = "GloomySapling",
+        Guid    = new(-1800289670),
+        Prefab  = "Item_Building_Sapling_GloomTree_Seed",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// MAJOR EXPLOSIVE BOX
-    public static readonly PrefabGUID Item_Building_Explosives_T02 = new(-1021407417);
+    public static readonly PrefabDef Item_Building_Sapling_WeepingWillow = new()
+    {
+        Name    = "WeepingWillowSapling",
+        Guid    = new(858598154),
+        Prefab  = "Item_Building_Sapling_WeepingWillow",
+        NameKey = null,
+        DescKey = null,
+    };
 
-// EMP
-    public static readonly PrefabGUID Item_Building_EMP_T01 = new(-1447213995);
+    // ── Placeable Items ───────────────────────────────────────────────────────
 
-// SIEGE GOLEM STONE
-    public static readonly PrefabGUID Item_Building_Siege_Golem_T02 = new(-1461326411);
-    public static readonly PrefabGUID Item_Consumable_BarrelDisguise01 = new(-82465606);
-    public static readonly PrefabGUID Item_Consumable_Bottle_Water_T02 = new(-1382451936);
-    public static readonly PrefabGUID Item_Consumable_Canister_ToxicSludge = new(-1823614190);
-    public static readonly PrefabGUID Item_Consumable_DuskCaller = new(1128262258);
-    public static readonly PrefabGUID Item_Consumable_Eat_Rat = new(-869864524);
-    public static readonly PrefabGUID Item_Consumable_EmptyBottle = new(-437611596);
-    public static readonly PrefabGUID Item_Consumable_EmptyWaterskin = new(-810738866);
-    public static readonly PrefabGUID Item_Consumable_FireResistancePotion_T01 = new(970650569);
-    public static readonly PrefabGUID Item_Consumable_GarlicResistancePotion_T01 = new(423790753);
-    public static readonly PrefabGUID Item_Consumable_GarlicResistancePotion_T02 = new(-2139183850);
-    public static readonly PrefabGUID Item_Consumable_HealingPotion_T01 = new(800879747);
-    public static readonly PrefabGUID Item_Consumable_HealingPotion_T02 = new(429052660);
-    public static readonly PrefabGUID Item_Consumable_Heart_T02_Tainted = new(947998050);
-    public static readonly PrefabGUID Item_Consumable_Heart_T03_Unsullied = new(-204051056);
-    public static readonly PrefabGUID Item_Consumable_Heart_T04_Exquisite = new(-1965958712);
-    public static readonly PrefabGUID Item_Consumable_Heart_T05_Pristine = new(-1413694594);
-    public static readonly PrefabGUID Item_Consumable_HolyResistancePotion_T01 = new(890484447);
-    public static readonly PrefabGUID Item_Consumable_HolyResistancePotion_T02 = new(639992282);
-    public static readonly PrefabGUID Item_Consumable_IrradiantGruel = new(1851490036);
-    public static readonly PrefabGUID Item_Consumable_PhysicalPowerPotion_T01 = new(-269326085);
-    public static readonly PrefabGUID Item_Consumable_PhysicalPowerPotion_T02 = new(-1568756102);
-    public static readonly PrefabGUID Item_Consumable_PrisonPotion = new(828432508);
-    public static readonly PrefabGUID Item_Consumable_PrisonPotion_Bloodwine = new(1223264867);
-    public static readonly PrefabGUID Item_Consumable_PrisonPotion_Mixed = new(2063723255);
-    public static readonly PrefabGUID Item_Consumable_Salve_Vermin = new(-1885959251);
-    public static readonly PrefabGUID Item_Consumable_SilverResistancePotion_T01 = new(272647158);
-    public static readonly PrefabGUID Item_Consumable_SilverResistancePotion_T02 = new(2107622409);
-    public static readonly PrefabGUID Item_Consumable_SpellPowerPotion_T01 = new(248289327);
-    public static readonly PrefabGUID Item_Consumable_SpellPowerPotion_T02 = new(1510182325);
-    public static readonly PrefabGUID Item_Consumable_SunResistancePotion_T01 = new(-38051433);
-    public static readonly PrefabGUID Item_Consumable_TrippyShroom = new(-1566269773);
-    public static readonly PrefabGUID Item_Consumable_Waterskin_Water_T01 = new(-1322000172);
-    public static readonly PrefabGUID Item_Consumable_WranglersPotion_T01 = new(541321301);
-    public static readonly PrefabGUID Item_Elixir_Bat_T01 = new(-2102469163);
-    public static readonly PrefabGUID Item_Elixir_Beast_T01 = new(98952351);
-    public static readonly PrefabGUID Item_Elixir_Blasphemous_T01 = new(-978856806);
-    public static readonly PrefabGUID Item_Elixir_Crow_T01 = new(904226111);
-    public static readonly PrefabGUID Item_Elixir_Prowler_T01 = new(1186268870);
-    public static readonly PrefabGUID Item_Elixir_Raven_T01 = new(-1561468105);
-    public static readonly PrefabGUID Item_Elixir_Twisted_T01 = new(1646351394);
-    public static readonly PrefabGUID Item_Elixir_Werewolf_T01 = new(948466634);
-    public static readonly PrefabGUID Item_Vampire_Coating_Blood = new(-1617973064);
-    public static readonly PrefabGUID Item_Vampire_Coating_Chaos = new(-1051190225);
-    public static readonly PrefabGUID Item_Vampire_Coating_Frost = new(-1087318964);
-    public static readonly PrefabGUID Item_Vampire_Coating_Illusion = new(1148284648);
-    public static readonly PrefabGUID Item_Vampire_Coating_Storm = new(2128629897);
-    public static readonly PrefabGUID Item_Vampire_Coating_Unholy = new(1002732935);
+    public static readonly PrefabDef Item_Building_DuelFlag = new()
+    {
+        Name    = "DuelingBanner",
+        Guid    = new(-262414476),
+        Prefab  = "Item_Building_DuelFlag",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Building_Explosives_T01 = new()
+    {
+        Name    = "MinorExplosiveBox",
+        Guid    = new(1779299585),
+        Prefab  = "Item_Building_Explosives_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Building_Explosives_T02 = new()
+    {
+        Name    = "MajorExplosiveBox",
+        Guid    = new(-1021407417),
+        Prefab  = "Item_Building_Explosives_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Building_EMP_T01 = new()
+    {
+        Name    = "EMP",
+        Guid    = new(-1447213995),
+        Prefab  = "Item_Building_EMP_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Building_Siege_Golem_T02 = new()
+    {
+        Name    = "SiegeGolemStone",
+        Guid    = new(-1461326411),
+        Prefab  = "Item_Building_Siege_Golem_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    // ── Consumables ───────────────────────────────────────────────────────────
+
+    public static readonly PrefabDef Item_Consumable_BarrelDisguise01 = new()
+    {
+        Name    = null,
+        Guid    = new(-82465606),
+        Prefab  = "Item_Consumable_BarrelDisguise01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Bottle_Water_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(-1382451936),
+        Prefab  = "Item_Consumable_Bottle_Water_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Canister_ToxicSludge = new()
+    {
+        Name    = null,
+        Guid    = new(-1823614190),
+        Prefab  = "Item_Consumable_Canister_ToxicSludge",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_DuskCaller = new()
+    {
+        Name    = null,
+        Guid    = new(1128262258),
+        Prefab  = "Item_Consumable_DuskCaller",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Eat_Rat = new()
+    {
+        Name    = null,
+        Guid    = new(-869864524),
+        Prefab  = "Item_Consumable_Eat_Rat",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_EmptyBottle = new()
+    {
+        Name    = null,
+        Guid    = new(-437611596),
+        Prefab  = "Item_Consumable_EmptyBottle",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_EmptyWaterskin = new()
+    {
+        Name    = null,
+        Guid    = new(-810738866),
+        Prefab  = "Item_Consumable_EmptyWaterskin",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_FireResistancePotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(970650569),
+        Prefab  = "Item_Consumable_FireResistancePotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_GarlicResistancePotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(423790753),
+        Prefab  = "Item_Consumable_GarlicResistancePotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_GarlicResistancePotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(-2139183850),
+        Prefab  = "Item_Consumable_GarlicResistancePotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_HealingPotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(800879747),
+        Prefab  = "Item_Consumable_HealingPotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_HealingPotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(429052660),
+        Prefab  = "Item_Consumable_HealingPotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Heart_T02_Tainted = new()
+    {
+        Name    = null,
+        Guid    = new(947998050),
+        Prefab  = "Item_Consumable_Heart_T02_Tainted",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Heart_T03_Unsullied = new()
+    {
+        Name    = null,
+        Guid    = new(-204051056),
+        Prefab  = "Item_Consumable_Heart_T03_Unsullied",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Heart_T04_Exquisite = new()
+    {
+        Name    = null,
+        Guid    = new(-1965958712),
+        Prefab  = "Item_Consumable_Heart_T04_Exquisite",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Heart_T05_Pristine = new()
+    {
+        Name    = null,
+        Guid    = new(-1413694594),
+        Prefab  = "Item_Consumable_Heart_T05_Pristine",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_HolyResistancePotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(890484447),
+        Prefab  = "Item_Consumable_HolyResistancePotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_HolyResistancePotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(639992282),
+        Prefab  = "Item_Consumable_HolyResistancePotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_IrradiantGruel = new()
+    {
+        Name    = null,
+        Guid    = new(1851490036),
+        Prefab  = "Item_Consumable_IrradiantGruel",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_PhysicalPowerPotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-269326085),
+        Prefab  = "Item_Consumable_PhysicalPowerPotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_PhysicalPowerPotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(-1568756102),
+        Prefab  = "Item_Consumable_PhysicalPowerPotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_PrisonPotion = new()
+    {
+        Name    = null,
+        Guid    = new(828432508),
+        Prefab  = "Item_Consumable_PrisonPotion",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_PrisonPotion_Bloodwine = new()
+    {
+        Name    = null,
+        Guid    = new(1223264867),
+        Prefab  = "Item_Consumable_PrisonPotion_Bloodwine",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_PrisonPotion_Mixed = new()
+    {
+        Name    = null,
+        Guid    = new(2063723255),
+        Prefab  = "Item_Consumable_PrisonPotion_Mixed",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Salve_Vermin = new()
+    {
+        Name    = null,
+        Guid    = new(-1885959251),
+        Prefab  = "Item_Consumable_Salve_Vermin",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_SilverResistancePotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(272647158),
+        Prefab  = "Item_Consumable_SilverResistancePotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_SilverResistancePotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(2107622409),
+        Prefab  = "Item_Consumable_SilverResistancePotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_SpellPowerPotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(248289327),
+        Prefab  = "Item_Consumable_SpellPowerPotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_SpellPowerPotion_T02 = new()
+    {
+        Name    = null,
+        Guid    = new(1510182325),
+        Prefab  = "Item_Consumable_SpellPowerPotion_T02",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_SunResistancePotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-38051433),
+        Prefab  = "Item_Consumable_SunResistancePotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_TrippyShroom = new()
+    {
+        Name    = null,
+        Guid    = new(-1566269773),
+        Prefab  = "Item_Consumable_TrippyShroom",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_Waterskin_Water_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-1322000172),
+        Prefab  = "Item_Consumable_Waterskin_Water_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Consumable_WranglersPotion_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(541321301),
+        Prefab  = "Item_Consumable_WranglersPotion_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    // ── Elixirs ───────────────────────────────────────────────────────────────
+
+    public static readonly PrefabDef Item_Elixir_Bat_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-2102469163),
+        Prefab  = "Item_Elixir_Bat_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Beast_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(98952351),
+        Prefab  = "Item_Elixir_Beast_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Blasphemous_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-978856806),
+        Prefab  = "Item_Elixir_Blasphemous_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Crow_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(904226111),
+        Prefab  = "Item_Elixir_Crow_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Prowler_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(1186268870),
+        Prefab  = "Item_Elixir_Prowler_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Raven_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(-1561468105),
+        Prefab  = "Item_Elixir_Raven_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Twisted_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(1646351394),
+        Prefab  = "Item_Elixir_Twisted_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Elixir_Werewolf_T01 = new()
+    {
+        Name    = null,
+        Guid    = new(948466634),
+        Prefab  = "Item_Elixir_Werewolf_T01",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    // ── Coatings ──────────────────────────────────────────────────────────────
+
+    public static readonly PrefabDef Item_Vampire_Coating_Blood = new()
+    {
+        Name    = null,
+        Guid    = new(-1617973064),
+        Prefab  = "Item_Vampire_Coating_Blood",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Vampire_Coating_Chaos = new()
+    {
+        Name    = null,
+        Guid    = new(-1051190225),
+        Prefab  = "Item_Vampire_Coating_Chaos",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Vampire_Coating_Frost = new()
+    {
+        Name    = null,
+        Guid    = new(-1087318964),
+        Prefab  = "Item_Vampire_Coating_Frost",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Vampire_Coating_Illusion = new()
+    {
+        Name    = null,
+        Guid    = new(1148284648),
+        Prefab  = "Item_Vampire_Coating_Illusion",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Vampire_Coating_Storm = new()
+    {
+        Name    = null,
+        Guid    = new(2128629897),
+        Prefab  = "Item_Vampire_Coating_Storm",
+        NameKey = null,
+        DescKey = null,
+    };
+
+    public static readonly PrefabDef Item_Vampire_Coating_Unholy = new()
+    {
+        Name    = null,
+        Guid    = new(1002732935),
+        Prefab  = "Item_Vampire_Coating_Unholy",
+        NameKey = null,
+        DescKey = null,
+    };
 }

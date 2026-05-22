@@ -1,16 +1,3 @@
-// ============================================================
-//  ArmorGlovesList — LilithsHeart
-//  LilithsHeart/Prefabs/Definitions/ArmorGlovesList.cs
-//
-//  [CHANGED] Migrated from bare PrefabGUID fields to PrefabDef records.
-//            Field names match the prefab string exactly. Names sourced
-//            from original comments. All nullable fields shown explicitly.
-//
-//  [PERFORMANCE] Static readonly PrefabDef fields — initialised once at
-//                class load, zero per-frame cost. Stack-allocated structs,
-//                no heap pressure.
-// ============================================================
-
 using Stunlock.Core;
 
 namespace LilithsHeart.Prefabs.Definitions;
