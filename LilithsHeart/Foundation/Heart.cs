@@ -5,8 +5,9 @@ using LilithsHeart.Config;
 using LilithsHeart.Events;
 using LilithsHeart.Network;
 using LilithsHeart.Prefabs;
+using LilithsHeart.Modules;
 
-// [CHANGED] Added LilithsHeart.Network using for SyncPayloadCache.
+// [CHANGED] Added LilithsHeart.Modules using for HeartRegistry.LogSummary().
 
 namespace LilithsHeart.Foundation;
 
@@ -41,8 +42,6 @@ public static class Heart
     static bool _initialized;
     public static bool IsReady => _initialized;
 
-    // [ADDED] Cached server identity used when rebuilding the sync payload
-    //         after a LocalizationConfig.Reload(). Populated once at initialize.
     static string _serverIdentity = string.Empty;
 
     internal static void OnInitialize()
@@ -50,39 +49,43 @@ public static class Heart
         if (_initialized) return;
 
         HeartLogger.Info(LOG_SOURCE, "Heart initializing...");
-        
+
         PrefabNameResolver.Initialize();
         LocalizationConfig.Initialize();
 
-        // [ADDED] Read server identity from GameSettings so the sync payload
-        //         can use a stable, human-readable folder key on the Soul side.
-        //         Falls back to "Unknown" if GameSettings isn't accessible yet
-        //         (shouldn't happen at this point in the boot sequence).
         _serverIdentity = ResolveServerIdentity();
 
-        // [ADDED] Build the compressed sync payload cache now that localization
-        //         is loaded. Subsequent client connects just memcpy from this cache.
         SyncPayloadCache.Build(_serverIdentity);
 
         _initialized = true;
 
         HeartLogger.Info(LOG_SOURCE, "Heart initialized.");
+
+        // Fire the C# event first — modules subscribe to this in their Load()
+        // and use it to run their own initialization against ECS.
         OnInitialized?.Invoke();
+
+        // [CHANGED] Log the registry summary after OnInitialized fires so that
+        //           any module that registers itself inside its OnInitialized
+        //           handler is included in the summary output.
+        HeartRegistry.LogSummary();
+
+        // [CHANGED] Publish OnWorldReady to the event bus after all OnInitialized
+        //           handlers have run. Modules can subscribe to either pattern —
+        //           the C# event (OnInitialized) for direct coupling, or the bus
+        //           (OnWorldReady) for looser pub/sub. Both are supported.
+        //
+        // [PERFORMANCE] Publish dispatches synchronously to a snapshot of
+        //               subscribers. Keep OnWorldReady handlers fast —
+        //               no heavy ECS queries or I/O inside them.
+        HeartEventBus.Publish(new OnWorldReady());
     }
 
-    /// <summary>
-    /// Rebuilds the sync payload cache with fresh localization data.
-    /// Called by LocalizationConfig.Reload() after dictionaries are repopulated.
-    /// </summary>
     internal static void OnLocalizationReloaded()
         => SyncPayloadCache.Rebuild(_serverIdentity);
 
-    // ── Helpers ─────────────────────────────────────────────
-
     static string ResolveServerIdentity()
     {
-        // Read server name from HeartConfig — set by the server operator
-        // in LilithsHeart.cfg. Defaults to "LilithsGarden" if not configured.
         var name = HeartConfig.ServerName.Value;
         return string.IsNullOrWhiteSpace(name) ? "LilithsGarden" : name;
     }

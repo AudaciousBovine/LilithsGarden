@@ -22,10 +22,17 @@ using LilithsSoul.Network;
 //  before ClientChatSystem processes them, preventing chunk
 //  text from ever appearing in the chat window.
 //
+//  [CHANGED] Added ServerChatMessageType.System filter before
+//            passing messages to SyncReceiver. Player chat and
+//            other message types are skipped immediately, avoiding
+//            unnecessary StartsWith checks on every chat message.
+//
 //  [PERFORMANCE] Per-frame cost is negligible — zero entities
 //                in _ReceiveChatMessagesQuery outside of a connect
-//                event. The string.StartsWith check is effectively
-//                free when there are no incoming messages.
+//                event. The MessageType enum check is a single
+//                integer comparison — effectively free.
+//                After the type filter, only system messages
+//                reach SyncReceiver.TryHandleMessage().
 // ============================================================
 
 namespace LilithsSoul.Patches;
@@ -48,8 +55,16 @@ internal static class ClientChatSystemPatch
             {
                 if (!entity.Has<ChatMessageServerEvent>()) continue;
 
-                var chatEvent   = entity.Read<ChatMessageServerEvent>();
-                string message  = chatEvent.MessageText.ToString();
+                var chatEvent = entity.Read<ChatMessageServerEvent>();
+
+                // [CHANGED] Skip non-system messages early. Heart sends payload
+                //           chunks as ServerChatMessageType.System — player chat,
+                //           global messages, and other types are never LG chunks.
+                //           This avoids a string allocation and StartsWith check
+                //           on every piece of player chat that passes through.
+                if (chatEvent.MessageType != ServerChatMessageType.System) continue;
+
+                string message = chatEvent.MessageText.ToString();
 
                 if (SyncReceiver.TryHandleMessage(message))
                 {

@@ -15,17 +15,20 @@
 //  Structure:
 //      LilithsHeart/
 //          LilithsHeart.cfg            ← Heart core settings
-//          LilithsCookbook.cfg         ← child module cfg
-//          Names/
-//              *.json                  ← prefab name export files
+//          LilithsCookbook.cfg         ← child module cfg files
 //          Localization/
 //              *.json                  ← server localization overrides
-//          Recipes/                    ← recipe config data
-//          Stations/                   ← station config data
+//          Recipes/                    ← recipe config data (LilithsCookbook)
+//          Stations/                   ← station config data (LilithsCookbook)
 //
-//  Child modules should use HeartPaths to resolve all paths
-//  rather than building their own path strings. This keeps
-//  the layout consistent and refactorable from one place.
+//  [CHANGED] Removed stale Names/ directory from the layout comment.
+//            Names/*.json was written by PrefabNameExporter which has been
+//            deleted. Prefab name resolution now uses LilithsMind definition
+//            classes directly at runtime — no JSON files are read or written.
+//
+//  Child modules should use HeartPaths to resolve all paths rather than
+//  building their own path strings. This keeps the layout consistent
+//  and refactorable from one place.
 //
 //  Usage in a child module's Plugin.Load():
 //

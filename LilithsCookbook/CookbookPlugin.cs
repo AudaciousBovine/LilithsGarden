@@ -3,9 +3,16 @@ using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 using LilithsHeart.Config;
 using LilithsHeart.Foundation;
-using LilithsCookbook.Config;   // [CHANGED] was LilithsCookbook.Systems
+using LilithsHeart.Modules;
+using LilithsCookbook.Config;
 using LilithsCookbook.Data;
 using LilithsCookbook.Systems;
+
+// [CHANGED] All MyPluginInfo references are fully qualified as LilithsCookbook.MyPluginInfo.
+//           BepInEx.PluginInfoProps generates a MyPluginInfo class per project, and since
+//           CookbookPlugin has a ProjectReference to LilithsHeart, both LilithsCookbook.MyPluginInfo
+//           and LilithsHeart.MyPluginInfo are in scope. The compiler cannot choose between them
+//           without qualification. Any child module that references Heart will need to do the same.
 
 namespace LilithsCookbook;
 
@@ -20,44 +27,37 @@ public class CookbookPlugin : BasePlugin
 
     public override void Load()
     {
-        // [CHANGED] LilithsLogger → HeartLogger throughout.
-        HeartLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loading.");
+        HeartLogger.Info(LOG_SOURCE, $"{LilithsCookbook.MyPluginInfo.PLUGIN_NAME} v{LilithsCookbook.MyPluginInfo.PLUGIN_VERSION} loading.");
 
         var configFile = new ConfigFile(HeartPaths.ModuleConfig("LilithsCookbook"), saveOnInit: true);
 
-        // 1. Read BepInEx cfg bindings first — GenerateAllRecipes flag lives here.
-        //    [CHANGED] CookbookConfig now in LilithsCookbook.Config namespace.
         CookbookConfig.Initialize(configFile);
-
-        // 2. Create config directories and write example files if missing.
-        //    Safe to call here — no ECS access required.
         CookbookGenerator.Initialize();
 
-        // 3. Subscribe to Heart.OnInitialized in order:
-        //       a. Generate all-recipes.json if the flag is set (ECS read)
-        //       b. Load merged config from disk into static properties
-        //       c. Apply recipe and station changes to ECS
+        HeartRegistry.Register(new ModuleInfo
+        {
+            ModuleId   = LilithsCookbook.MyPluginInfo.PLUGIN_GUID,
+            ModuleName = LilithsCookbook.MyPluginInfo.PLUGIN_NAME,
+            Version    = LilithsCookbook.MyPluginInfo.PLUGIN_VERSION,
+        });
+
         Heart.OnInitialized += OnHeartInitialized;
     }
 
     public override bool Unload()
     {
         Heart.OnInitialized -= OnHeartInitialized;
-        HeartLogger.Info(LOG_SOURCE, $"{MyPluginInfo.PLUGIN_NAME} unloaded.");
+        HeartLogger.Info(LOG_SOURCE, $"{LilithsCookbook.MyPluginInfo.PLUGIN_NAME} unloaded.");
         return true;
     }
 
     static void OnHeartInitialized()
     {
-        // a. Generate all-recipes.json if requested — must run before loading
-        //    so the newly written file is included in the merge if present.
         CookbookGenerator.GenerateAllRecipesIfRequested();
 
-        // b. Load and merge all *.json files from Recipes/ and Stations/ folders.
         RecipeData  = CookbookLoader.LoadRecipes(CookbookGenerator.RecipesDir);
         StationData = CookbookLoader.LoadStations(CookbookGenerator.StationsDir);
 
-        // c. Apply changes to ECS.
         RecipeSystem.ApplyChanges();
         StationSystem.ApplyChanges();
     }
