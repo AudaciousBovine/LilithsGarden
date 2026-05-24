@@ -20,12 +20,5 @@
 <ItemGroup>
   <PackageReference Include="BepInEx.PluginInfoProps" Version="2.1.0" />
   <PackageReference Include="BepInEx.Unity.IL2CPP" Version="6.0.0-be.733" IncludeAssets="compile" />
-  <!--
-    VRising.Unhollowed.Client exposes all game types including
-    ClientChatSystem (ProjectM.UI) and NetConnectionId (ProjectM.Network)
-    which VampireReferenceAssemblies does not. Used by Bloodcraft and ZUI.
-  -->
-  <PackageReference Include="VRising.Unhollowed.Client" Version="1.1.9.9219901" />
-  <PackageReference Include="VRising.VampireCommandFramework" Version="0.10.4" />
 </ItemGroup>
 </Project>
