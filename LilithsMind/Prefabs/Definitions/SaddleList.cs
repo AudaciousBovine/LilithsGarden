@@ -13,14 +13,14 @@
 
 using Stunlock.Core;
 
-namespace LilithsHeart.Prefabs.Definitions;
+namespace LilithsMind.Prefabs.Definitions;
 
 public static class SaddleList
 {
     public static readonly PrefabDef Item_Saddle_Basic = new()
     {
         Name    = "VampireHorseSaddle",
-        Guid    = new(-1209228232),
+        GuidHash = -1209228232,
         Prefab  = "Item_Saddle_Basic",
         NameKey = null,
         DescKey = null,
@@ -30,7 +30,7 @@ public static class SaddleList
     public static readonly PrefabDef Item_Saddle_Blackfang_DLC = new()
     {
         Name    = "DarkvenomWarSaddle",
-        Guid    = new(-1793846754),
+        GuidHash = -1793846754,
         Prefab  = "Item_Saddle_Blackfang_DLC",
         NameKey = null,
         DescKey = null,
@@ -40,7 +40,7 @@ public static class SaddleList
     public static readonly PrefabDef Item_Saddle_Gloomrot_DLC = new()
     {
         Name    = "PlagueChemistsSaddle",
-        Guid    = new(-554782766),
+        GuidHash = -554782766,
         Prefab  = "Item_Saddle_Gloomrot_DLC",
         NameKey = null,
         DescKey = null,
@@ -50,7 +50,7 @@ public static class SaddleList
     public static readonly PrefabDef Item_Saddle_PMKSkeleton_DLC = new()
     {
         Name    = "RowdainsSteedSaddle",
-        Guid    = new(-1270904319),
+        GuidHash = -1270904319,
         Prefab  = "Item_Saddle_PMKSkeleton_DLC",
         NameKey = null,
         DescKey = null,

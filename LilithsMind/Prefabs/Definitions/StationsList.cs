@@ -1,6 +1,6 @@
 using Stunlock.Core;
 
-namespace LilithsHeart.Prefabs.Definitions;
+namespace LilithsMind.Prefabs.Definitions;
 
 public static class StationsList
 {

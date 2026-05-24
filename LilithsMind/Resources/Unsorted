@@ -1,6 +1,6 @@
 using Stunlock.Core;
 
-namespace LilithsHeart.Prefabs.Definitions;
+namespace LilithsMind.Prefabs;
 internal static class Unsorted
 {
     public static readonly PrefabGUID VM_VBlood_TEMPLATE = new(2075390218);

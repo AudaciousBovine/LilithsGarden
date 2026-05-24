@@ -73,12 +73,6 @@ public static class HeartPaths
     // ── Data subdirectories ─────────────────────────────────
 
     /// <summary>
-    /// BepInEx/config/LilithsHeart/Names/
-    /// Prefab name export JSON files written by PrefabNameExporter.
-    /// </summary>
-    public static readonly string NamesDir = Path.Combine(Root, "Names");
-
-    /// <summary>
     /// BepInEx/config/LilithsHeart/Localization/
     /// Server localization override files.
     /// </summary>
