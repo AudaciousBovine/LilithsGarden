@@ -2,6 +2,7 @@ using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
 using LilithsHeart.Foundation;
+using LilithsHeart.Network;
 using LilithsHeart.Prefabs;
 using LilithsCookbook.Data;
 
@@ -9,6 +10,20 @@ namespace LilithsCookbook.Systems;
 
 // [CHANGED] LilithsLogger → HeartLogger throughout.
 //           Added using LilithsHeart.Prefabs for PrefabNameResolver.
+//           Added using LilithsHeart.Network for RecipeOverrideData.
+//
+// [CHANGED] ApplyChanges() now builds a RecipeOverrideData dict for
+//           every recipe where ChangesEnabled = true and registers it
+//           with Heart.RegisterRecipeOverrides() so connecting Soul
+//           clients receive the overrides and can patch their local
+//           prefab ECS to display the correct ingredient/output data.
+//
+// [CHANGED] ApplyRecipeData() now also writes scalar fields directly
+//           into RecipeHashLookupMap. Investigation confirmed that the
+//           map is populated from baked scene data at startup and is NOT
+//           updated by RegisterRecipes() from live entity components.
+//           The crafting system reads CraftDuration from this map, not
+//           from the prefab entity, so both must be kept in sync.
 public static class RecipeSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.RecipeSystem";
@@ -23,8 +38,11 @@ public static class RecipeSystem
             return;
         }
 
-        var recipeMap = Heart.GameDataSystem.RecipeHashLookupMap;
-        int changed   = 0;
+        int changed = 0;
+
+        // [PERFORMANCE] Dict pre-sized to config count — avoids
+        // rehashing during the apply loop.
+        var soulOverrides = new Dictionary<string, RecipeOverrideData>(config.Recipes.Count);
 
         foreach (var (recipeName, entry) in config.Recipes)
         {
@@ -48,7 +66,8 @@ public static class RecipeSystem
                 entry.IgnoreServerSettings.HasValue ||
                 entry.HudSortingOrder.HasValue)
             {
-                ApplyRecipeData(recipeEntity, entry);
+                // [CHANGED] Pass guid so ApplyRecipeData can also update RecipeHashLookupMap.
+                ApplyRecipeData(recipeEntity, entry, guid);
             }
 
             if (entry.Requirements != null)
@@ -69,15 +88,19 @@ public static class RecipeSystem
                 ApplyOptionalBuffer(recipeEntity, entry.UseRecipeLinks.Value, entry.RecipeLinks, recipeName,
                     ApplyRecipeLinks);
 
-            // Changes are applied in-place via Write() calls in each Apply* method.
-            // No write-back to recipeMap needed — RegisterRecipes() re-reads from ECS.
             changed++;
+
+            soulOverrides[recipeName] = BuildSoulOverride(recipeEntity);
         }
 
         if (changed > 0)
         {
             Heart.GameDataSystem.RegisterRecipes();
             HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} recipe(s).");
+
+            Heart.RegisterRecipeOverrides(soulOverrides);
+            HeartLogger.Info(LOG_SOURCE,
+                $"Registered {soulOverrides.Count} recipe override(s) with Heart for Soul sync.");
         }
         else
         {
@@ -85,10 +108,74 @@ public static class RecipeSystem
         }
     }
 
-    // ── Per-field apply ───────────────────────────────────────────────────────
+    // ── Soul override builder ─────────────────────────────────
 
-    static void ApplyRecipeData(Entity recipeEntity, RecipeEntry entry)
+    /// <summary>
+    /// Builds a RecipeOverrideData by reading the current ECS entity state
+    /// after all changes have been applied. Reading from ECS rather than the
+    /// config entry ensures the override reflects what was actually committed
+    /// (e.g. a requirement item that failed to resolve won't appear).
+    ///
+    /// [PERFORMANCE] Called once per changed recipe at startup only.
+    /// </summary>
+    static RecipeOverrideData BuildSoulOverride(Entity recipeEntity)
     {
+        var result = new RecipeOverrideData();
+
+        if (recipeEntity.TryGetComponent<RecipeData>(out var recipeData))
+            result.CraftDuration = recipeData.CraftDuration;
+
+        if (recipeEntity.TryGetBuffer<RecipeRequirementBuffer>(out var reqBuffer))
+        {
+            result.Requirements = new List<RecipeSlotData>(reqBuffer.Length);
+            for (int i = 0; i < reqBuffer.Length; i++)
+            {
+                var req = reqBuffer[i];
+                PrefabNameResolver.TryResolveName(req.Guid, out string itemName);
+                result.Requirements.Add(new RecipeSlotData
+                {
+                    Item   = string.IsNullOrEmpty(itemName) ? req.Guid._Value.ToString() : itemName,
+                    Amount = req.Amount
+                });
+            }
+        }
+
+        if (recipeEntity.TryGetBuffer<RecipeOutputBuffer>(out var outBuffer))
+        {
+            result.Outputs = new List<RecipeSlotData>(outBuffer.Length);
+            for (int i = 0; i < outBuffer.Length; i++)
+            {
+                var output = outBuffer[i];
+                PrefabNameResolver.TryResolveName(output.Guid, out string itemName);
+                result.Outputs.Add(new RecipeSlotData
+                {
+                    Item   = string.IsNullOrEmpty(itemName) ? output.Guid._Value.ToString() : itemName,
+                    Amount = output.Amount
+                });
+            }
+        }
+
+        return result;
+    }
+
+    // ── Per-field apply ───────────────────────────────────────
+
+    /// <summary>
+    /// Applies scalar RecipeData fields to both the prefab entity component
+    /// and directly into RecipeHashLookupMap.
+    ///
+    /// [CHANGED] RecipeHashLookupMap is populated from baked scene data at
+    ///           startup and is not updated by RegisterRecipes() from live
+    ///           entity components. The crafting system reads CraftDuration
+    ///           and other scalar fields from the map, not the entity, so
+    ///           both must be written to ensure changes take effect.
+    ///
+    /// [PERFORMANCE] One map read + one map write per changed recipe at
+    ///               startup only — no per-frame cost.
+    /// </summary>
+    static void ApplyRecipeData(Entity recipeEntity, RecipeEntry entry, PrefabGUID guid)
+    {
+        // ── Write to prefab entity ────────────────────────────
         var data = recipeEntity.Read<RecipeData>();
 
         if (entry.CraftDuration.HasValue)       data.CraftDuration        = entry.CraftDuration.Value;
@@ -98,6 +185,29 @@ public static class RecipeSystem
         if (entry.HudSortingOrder.HasValue)      data.HudSortingOrder      = entry.HudSortingOrder.Value;
 
         recipeEntity.Write(data);
+
+        // ── Write directly into RecipeHashLookupMap ───────────
+        // The map is a NativeParallelHashMap — readonly means the map
+        // reference can't be reassigned, but its contents are mutable.
+        var map = Heart.GameDataSystem.RecipeHashLookupMap;
+        if (map.TryGetValue(guid, out var mapEntry))
+        {
+            if (entry.CraftDuration.HasValue)       mapEntry.CraftDuration        = entry.CraftDuration.Value;
+            if (entry.AlwaysUnlocked.HasValue)       mapEntry.AlwaysUnlocked       = entry.AlwaysUnlocked.Value;
+            if (entry.HideInStation.HasValue)        mapEntry.HideInStation        = entry.HideInStation.Value;
+            if (entry.IgnoreServerSettings.HasValue) mapEntry.IgnoreServerSettings = entry.IgnoreServerSettings.Value;
+            if (entry.HudSortingOrder.HasValue)      mapEntry.HudSortingOrder      = entry.HudSortingOrder.Value;
+            map[guid] = mapEntry;
+
+            HeartLogger.Debug(LOG_SOURCE,
+                $"Updated RecipeHashLookupMap for '{guid._Value}': " +
+                $"CraftDuration={mapEntry.CraftDuration}");
+        }
+        else
+        {
+            HeartLogger.Warning(LOG_SOURCE,
+                $"Recipe GUID {guid._Value} not found in RecipeHashLookupMap — scalar fields may not apply.");
+        }
     }
 
     static void ApplyRequirements(Entity recipeEntity, List<RecipeRequirement> requirements, string recipeName)
@@ -137,8 +247,6 @@ public static class RecipeSystem
             buffer.Add(new RecipeOutputBuffer { Guid = itemGuid, Amount = output.Amount });
         }
     }
-
-    // ── Optional buffer handler ───────────────────────────────────────────────
 
     static void ApplyOptionalBuffer<T>(
         Entity recipeEntity,
@@ -187,8 +295,6 @@ public static class RecipeSystem
                 HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeLinkBuffer already absent, nothing to remove.");
         }
     }
-
-    // ── Per-buffer apply methods ──────────────────────────────────────────────
 
     static void ApplyRepairCosts(Entity recipeEntity, List<RecipeRepairCost> repairCosts, string recipeName)
     {

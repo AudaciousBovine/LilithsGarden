@@ -9,8 +9,8 @@ public static class ItemsResourcesList
         Name    = "BloodEssence",
         GuidHash = 862477668,
         Prefab  = "Item_BloodEssence_T01",
-        NameKey = null,
-        DescKey = null,
+        NameKey = "37e872e1-4aa1-4f0a-8e2e-a67883b5a645",
+        DescKey = "662215a0-2197-4b43-b91e-c0e546f6a369",
     };
 
     public static readonly PrefabDef Item_BloodEssence_T02_Greater = new()

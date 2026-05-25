@@ -7,6 +7,8 @@ using LilithsHeart.Network;
 using LilithsHeart.Prefabs;
 using LilithsHeart.Modules;
 
+// [CHANGED] Added LilithsHeart.Modules using for HeartRegistry.LogSummary().
+
 namespace LilithsHeart.Foundation;
 
 public static class Heart
@@ -42,6 +44,18 @@ public static class Heart
 
     static string _serverIdentity = string.Empty;
 
+    // [CHANGED] Pending recipe overrides collected by modules before
+    //           SyncPayloadCache.Build() is called. Modules call
+    //           RegisterRecipeOverrides() during their OnInitialized
+    //           handler — after applying ECS changes — so the data
+    //           is ready when the first client connects.
+    //
+    //           Using a static dict here means modules accumulate
+    //           overrides additionally. If two modules touch the same
+    //           recipe the last writer wins — consistent with how
+    //           multi-file JSON merge works in CookbookLoader.
+    static readonly Dictionary<string, RecipeOverrideData> _pendingRecipeOverrides = new();
+
     internal static void OnInitialize()
     {
         if (_initialized) return;
@@ -53,55 +67,81 @@ public static class Heart
 
         _serverIdentity = ResolveServerIdentity();
 
+        // Build the initial payload — RecipeOverrides is empty at this point.
+        // Modules that register overrides via RegisterRecipeOverrides() during
+        // their OnInitialized handler will trigger a Rebuild() via
+        // OnRecipeOverridesRegistered() called at the end of OnInitialize.
         SyncPayloadCache.Build(_serverIdentity);
 
         _initialized = true;
 
         HeartLogger.Info(LOG_SOURCE, "Heart initialized.");
 
-        // Fire the C# event first — modules subscribe to this in their Load()
+        // Fire the C# event — modules subscribe to this in their Load()
         // and use it to run their own initialization against ECS.
         OnInitialized?.Invoke();
 
-        // Log the registry summary after OnInitialized fires so that any module
-        // that registers itself inside its OnInitialized handler is included.
+        // [CHANGED] Rebuild the payload after all OnInitialized handlers have
+        //           run so any recipe overrides registered during initialization
+        //           are included in the cached payload sent to connecting clients.
+        //           If no overrides were registered, the rebuild is cheap —
+        //           SyncPayloadCache serializes the same data a second time.
+        //
+        // [PERFORMANCE] Two serialization passes at startup — one here, one
+        //               after modules register overrides. Acceptable: this
+        //               happens once per server start, not per-frame.
+        if (_pendingRecipeOverrides.Count > 0)
+        {
+            HeartLogger.Info(LOG_SOURCE,
+                $"Rebuilding sync payload with {_pendingRecipeOverrides.Count} recipe override(s).");
+            SyncPayloadCache.Rebuild(_serverIdentity, _pendingRecipeOverrides);
+        }
+
         HeartRegistry.LogSummary();
 
-        // Publish OnWorldReady to the event bus after all OnInitialized handlers
-        // have run. Modules can subscribe to either pattern — the C# event
-        // (OnInitialized) for direct coupling, or the bus (OnWorldReady) for
-        // looser pub/sub. Both are supported.
-        //
-        // [PERFORMANCE] Publish dispatches synchronously to a snapshot of
-        //               subscribers. Keep OnWorldReady handlers fast —
-        //               no heavy ECS queries or I/O inside them.
         HeartEventBus.Publish(new OnWorldReady());
     }
 
-    // [CHANGED] Added OnDestroy() to reset Heart state on world teardown.
-    //           Called from HeartPlugin.Unload() so the next world load can
-    //           fire OnInitialize() again cleanly.
-    //           Publishes OnWorldDestroyed before resetting state so subscribers
-    //           can act on it while Heart is still nominally valid.
-    internal static void OnDestroy()
+    /// <summary>
+    /// Called by modules (e.g. LilithsCookbook) after applying recipe changes
+    /// to register those changes for inclusion in the ServerSyncPayload sent
+    /// to Soul clients. Call this from your OnInitialized handler, after
+    /// ApplyChanges() has run.
+    ///
+    /// Safe to call multiple times — later registrations merge into the dict,
+    /// last writer wins per recipe key.
+    ///
+    /// [PERFORMANCE] O(n) dict merge — called once per module at startup only.
+    /// </summary>
+    public static void RegisterRecipeOverrides(Dictionary<string, RecipeOverrideData> overrides)
     {
-        if (!_initialized) return;
+        foreach (var (key, value) in overrides)
+            _pendingRecipeOverrides[key] = value;
 
-        HeartLogger.Info(LOG_SOURCE, "Heart shutting down...");
-
-        // Publish first — subscribers may need Heart.IsReady to still be true
-        // during their cleanup (e.g. releasing cached entity references).
-        HeartEventBus.Publish(new OnWorldDestroyed());
-
-        _initialized    = false;
-        _serverIdentity = string.Empty;
-        _server         = null;
-
-        HeartLogger.Info(LOG_SOURCE, "Heart shut down.");
+        HeartLogger.Debug(LOG_SOURCE,
+            $"RegisterRecipeOverrides: +{overrides.Count} entries, total={_pendingRecipeOverrides.Count}");
     }
 
     internal static void OnLocalizationReloaded()
-        => SyncPayloadCache.Rebuild(_serverIdentity);
+    {
+        // [CHANGED] Pass current recipe overrides so they're preserved
+        //           in the rebuilt payload after a localization reload.
+        SyncPayloadCache.Rebuild(_serverIdentity, _pendingRecipeOverrides);
+    }
+
+    /// <summary>
+    /// Called from HeartPlugin.Unload(). Resets Heart state so a
+    /// subsequent hot-reload starts clean.
+    /// </summary>
+    internal static void OnDestroy()
+    {
+        _initialized = false;
+        _server      = null;
+        _serverIdentity = string.Empty;
+        _pendingRecipeOverrides.Clear();
+        OnInitialized = null;
+        HeartLogger.Info(LOG_SOURCE, "Heart destroyed.");
+    }
 
     static string ResolveServerIdentity()
     {

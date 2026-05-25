@@ -16,25 +16,22 @@
 //    HeartConfig.ServerName) so Soul can match a cached payload
 //    to the right server on reconnect.
 //
-//  • Gameplay settings are absent from this payload.
-//    Heart is infrastructure-only. When gameplay modules need to
-//    sync values to Soul they will extend the payload at that point.
-//    For now the payload carries only localization overrides.
-//
-//  • Localization entries are the flattened contents of
-//    LocalizationConfig — keyed by prefab name, separate display
-//    name and tooltip fields. null means "use vanilla string".
-//
 //  • PayloadHash is computed by SyncPayloadCache after serialization
 //    and written back into the payload before the final cache write.
 //    Soul compares this against the cached file's hash and skips
 //    re-writing and re-patching if nothing changed.
 //
-//  [CHANGED] BuildHash() removed. It serialized the payload to JSON
-//            internally to hash it, but SyncPayloadCache.Build()
-//            already serializes and hashes via its own ComputeHash().
-//            Having both meant two redundant serialization passes.
-//            Hashing is now entirely the responsibility of SyncPayloadCache.
+//  • Localization entries are the flattened contents of
+//    LocalizationConfig — keyed by prefab name, separate display
+//    name and tooltip fields.
+//
+//  • [CHANGED] Added RecipeOverrides — a dict of recipe prefab name
+//    → RecipeOverrideData. Populated by LilithsCookbook via
+//    Heart.RegisterRecipeOverrides() after applying server changes.
+//    Soul uses this to patch client-side prefab ECS entities so the
+//    HUD displays the correct ingredients, outputs, and duration.
+//    Only recipes with ChangesEnabled = true are included — vanilla
+//    recipes are not sent to keep payload size minimal.
 //
 //  [PERFORMANCE] Serialized once on connect, deserialized once on
 //                the client. Not updated during a session.
@@ -81,10 +78,27 @@ public sealed class ServerSyncPayload
     /// </summary>
     public Dictionary<string, string> TooltipOverrides { get; set; } = new();
 
+    // ── Recipe overrides ────────────────────────────────────
+
+    /// <summary>
+    /// Recipe data overrides, keyed by recipe prefab name.
+    /// e.g. "Recipe_Weapon_Sword_T04_Copper_Reinforced" → RecipeOverrideData
+    ///
+    /// Only recipes with ChangesEnabled = true in LilithsCookbook config
+    /// are included. Soul patches RecipeData, RecipeRequirementBuffer, and
+    /// RecipeOutputBuffer on client prefab entities from this dict.
+    ///
+    /// [CHANGED] Added to support client-side recipe display accuracy.
+    /// </summary>
+    public Dictionary<string, RecipeOverrideData> RecipeOverrides { get; set; } = new();
+
     // ── Factory ─────────────────────────────────────────────
 
     /// <summary>
     /// Builds a ready-to-send payload from the current Heart config state.
+    /// RecipeOverrides starts empty — LilithsCookbook calls
+    /// Heart.RegisterRecipeOverrides() after applying its changes, which
+    /// populates this before SyncPayloadCache.Build() serializes it.
     /// PayloadHash is left empty here — SyncPayloadCache.Build() fills it
     /// after serialization so the hash covers the full content.
     /// </summary>
@@ -95,6 +109,7 @@ public sealed class ServerSyncPayload
             ServerIdentity       = SanitizeFolderName(serverIdentity),
             DisplayNameOverrides = new Dictionary<string, string>(LocalizationConfig.DisplayNames),
             TooltipOverrides     = new Dictionary<string, string>(LocalizationConfig.Tooltips),
+            // RecipeOverrides populated separately by LilithsCookbook
         };
     }
 

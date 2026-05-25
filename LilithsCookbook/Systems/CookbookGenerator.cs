@@ -64,7 +64,6 @@ public static class CookbookGenerator
     {
         if (!CookbookConfig.GenerateAllRecipes) return;
 
-        // [CHANGED] LilithsLogger → HeartLogger throughout this file.
         HeartLogger.Info(LOG_SOURCE, "GenerateAllRecipes is enabled — generating all-recipes.json...");
 
         try
@@ -195,43 +194,26 @@ public static class CookbookGenerator
 
     // ── Example file writers ──────────────────────────────────────────────────
 
+    // [CHANGED] Example now uses Recipe_Weapon_Sword_T01_Bone with a single
+    //           Blood Essence requirement — both prefabs are confirmed present
+    //           in LilithsMind so PrefabNameResolver resolves them correctly
+    //           on the server and RecipePatcher resolves them on the client.
+    //           ChangesEnabled = true so the change applies on boot.
+    //           Only Requirements is specified — all other fields (outputs,
+    //           craft duration, repair costs) keep their vanilla values.
     static void WriteExampleRecipes()
     {
         var data = new CookbookRecipeData
         {
             Recipes = new Dictionary<string, RecipeEntry>
             {
-                ["Recipe_Weapon_Sword_T04_Copper_Reinforced"] = new RecipeEntry
+                ["Recipe_Weapon_Sword_T01_Bone"] = new RecipeEntry
                 {
-                    ChangesEnabled       = false,
-                    CraftDuration        = 4f,
-                    AlwaysUnlocked       = false,
-                    HideInStation        = false,
-                    IgnoreServerSettings = false,
-                    HudSortingOrder      = 0,
+                    ChangesEnabled = true,
                     Requirements = new List<RecipeRequirement>
                     {
-                        new() { Item = "Item_Weapon_Sword_T03_Copper",     Amount = 1 },
-                        new() { Item = "Item_Ingredient_Gem_Sapphire_T01", Amount = 1 },
-                        new() { Item = "Item_Ingredient_Whetstone",        Amount = 3 },
-                        new() { Item = "Item_Ingredient_Leather",          Amount = 1 }
-                    },
-                    Outputs = new List<RecipeOutput>
-                    {
-                        new() { Item = "Item_Weapon_Sword_T04_Copper_Reinforced", Amount = 1 }
-                    },
-                    UseRepairCosts = true,
-                    RepairCosts = new List<RecipeRepairCost>
-                    {
-                        new() { Item = "Item_Ingredient_Mineral_CopperIngot", Amount = 8 },
-                        new() { Item = "Item_Ingredient_Whetstone",           Amount = 8 },
-                        new() { Item = "Item_Ingredient_Plank",               Amount = 8 }
+                        new() { Item = "Item_BloodEssence_T01", Amount = 1 }
                     }
-                },
-                ["Recipe_Armor_Boots_T01_Bone"] = new RecipeEntry
-                {
-                    ChangesEnabled = false,
-                    CraftDuration  = 2f
                 }
             }
         };

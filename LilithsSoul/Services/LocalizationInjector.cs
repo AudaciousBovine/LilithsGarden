@@ -1,10 +1,9 @@
 using System.Reflection;
-using ProjectM;
 using Stunlock.Core;
 using Stunlock.Localization;
-using Unity.Collections;
 using LilithsMind.Prefabs;
 using LilithsSoul.Foundation;
+using LilithsSoul.Network;
 
 // ============================================================
 //  LocalizationInjector — LilithsSoul
@@ -14,50 +13,47 @@ using LilithsSoul.Foundation;
 //  ServerSyncPayload into V Rising's live localization table:
 //      Stunlock.Localization.Localization._LocalizedStrings
 //
-//  How V Rising localization works:
-//  ──────────────────────────────────
-//  The game stores all display strings in a static dictionary:
-//      Localization._LocalizedStrings: Dictionary<AssetGuid, string>
+//  How V Rising localization works (confirmed via DnSpy):
+//  ───────────────────────────────────────────────────────
+//  _LocalizedStrings is Dictionary<AssetGuid, string>.
+//  The UI calls Localization.Get(AssetGuid) to resolve text.
+//  Each prefab has two localization keys stored in PrefabDef:
+//    NameKey — AssetGuid for the display name string
+//    DescKey — AssetGuid for the tooltip/description string
 //
-//  Every item, NPC, recipe etc. has an AssetGuid for its name
-//  and tooltip. The UI calls Localization.Get(AssetGuid) to
-//  resolve display text. We write directly into _LocalizedStrings
-//  to override any entry.
+//  Example (Blood Essence):
+//    NameKey = "37e872e1-4aa1-4f0a-8e2e-a67883b5a645" → "Blood Essence"
+//    DescKey = "662215a0-2197-4b43-b91e-c0e546f6a369" → "An energy source..."
+//
+//  Injection:
+//    _LocalizedStrings[ParseAssetGuid(NameKey)] = "Vitae"
+//    _LocalizedStrings[ParseAssetGuid(DescKey)] = "Custom tooltip"
+//
+//  [CHANGED] Complete rewrite. Previous implementation used
+//  PrefabData.AssetGuid from _PrefabDataLookup as the injection
+//  key — this was wrong. AssetGuid is the prefab's identity GUID,
+//  not its localization key. The UI reads from _LocalizedStrings
+//  using NameKey/DescKey AssetGuids, not the prefab identity GUID.
+//
+//  The correct source for localization keys is LilithsMind PrefabDef
+//  entries — NameKey and DescKey fields. No ECS iteration needed.
 //
 //  Lookup strategy:
 //  ─────────────────
-//  Two dictionaries are built once at world ready:
+//  BuildLookupTable() scans LilithsMind definition classes once
+//  at world ready and builds two dictionaries:
+//    _nameToNameGuid — prefab Name/Prefab string → NameKey AssetGuid
+//    _nameToDescGuid — prefab Name/Prefab string → DescKey AssetGuid
 //
-//    • _nameToDisplayGuid — prefab Name/Prefab string → display
-//                           name AssetGuid, sourced from
-//                           PrefabData.AssetGuid via _PrefabDataLookup.
+//  Entries with null NameKey or DescKey are skipped — partial
+//  definitions cannot inject what they don't have.
 //
-//    • _nameToTooltipGuid — prefab Name/Prefab string → tooltip
-//                           AssetGuid, sourced from DescKey fields
-//                           in LilithsMind definition classes.
-//
-//  [CHANGED] LilithsMind definition classes are now iterated in a
-//            single pass during BuildLookupTable(). Previously
-//            BuildDisplayNameLookup() called BuildGuidHashToNameMap()
-//            which iterated all definitions once, then BuildTooltipLookup()
-//            iterated them again — two full reflection walks for the same
-//            data. Now a single ScanDefinitions() pass builds both the
-//            guid→name map and the tooltip lookup simultaneously.
-//            BuildGuidHashToNameMap() is removed as a result.
-//
-//  AssetGuid construction:
-//  ───────────────────────
-//  We parse the raw hex string directly as four big-endian Int32s
-//  rather than using System.Guid.ToByteArray() which returns
-//  mixed-endian bytes on Windows, byte-swapping the first three
-//  components and producing keys that don't match the table.
-//
-//  [PERFORMANCE] Single reflection pass over LilithsMind at world
-//                ready — O(n) over all definition fields, paid once.
-//                Display name lookup still O(n) over _PrefabDataLookup,
-//                also paid once. All subsequent lookups are O(1).
+//  [PERFORMANCE] Reflection over LilithsMind assembly runs once
+//                at world ready — O(n) over all definition fields.
+//                No ECS iteration. No PrefabCollectionSystem needed.
+//                Injection is O(1) per entry — direct dict write.
 //                ClearPrevious calls LoadDefaultLanguage() once per
-//                server switch — cost paid once, not per-frame.
+//                server switch — reads from disk, paid once only.
 // ============================================================
 
 namespace LilithsSoul.Services;
@@ -65,141 +61,35 @@ namespace LilithsSoul.Services;
 public static class LocalizationInjector
 {
     private const string LOG_SOURCE = "LilithsSoul.LocalizationInjector";
+
     private const string PrefabNamespace = "LilithsMind.Prefabs.Definitions";
 
-    // Built once at world ready.
-    // Keyed by both Name (admin-facing) and Prefab string (game asset name)
-    // so either format sent from the server resolves correctly.
-    static readonly Dictionary<string, AssetGuid> _nameToDisplayGuid = new();
-    static readonly Dictionary<string, AssetGuid> _nameToTooltipGuid = new();
+    // Built once at world ready from LilithsMind definitions.
+    // Keyed by both Name (admin-facing) and Prefab string (game asset name).
+    static readonly Dictionary<string, AssetGuid> _nameToNameGuid = new();
+    static readonly Dictionary<string, AssetGuid> _nameToDescGuid = new();
 
-    // Track all injected keys so we can cleanly remove them on server switch.
+    // Track injected AssetGuids so we can cleanly remove them on server switch.
     static readonly HashSet<AssetGuid> _injectedGuids = new();
 
     // ── Public API ───────────────────────────────────────────
 
     /// <summary>
-    /// Builds both lookup tables. Called from SyncReceiver.NotifyWorldReady()
-    /// once PrefabCollectionSystem is available.
+    /// Builds both lookup tables from LilithsMind definition classes.
+    /// Called by SyncReceiver.NotifyWorldReady() — no ECS access needed,
+    /// so safe to call as soon as BepInEx has loaded LilithsMind.
     ///
-    /// [CHANGED] LilithsMind definitions are now scanned once via ScanDefinitions(),
-    ///           which builds both the guid→name map and the tooltip lookup in a
-    ///           single reflection pass. Previously two separate passes were made.
+    /// Safe to call multiple times — clears and rebuilds each call.
     ///
-    /// [PERFORMANCE] Reflection and ECS iteration run once at world ready.
-    ///               No per-frame cost after initialization.
+    /// [PERFORMANCE] O(n) reflection over LilithsMind definitions.
+    ///               Run once at world ready. No per-frame cost.
     /// </summary>
     public static void BuildLookupTable()
     {
-        _nameToDisplayGuid.Clear();
-        _nameToTooltipGuid.Clear();
+        _nameToNameGuid.Clear();
+        _nameToDescGuid.Clear();
 
-        try
-        {
-            var world = Soul.ClientWorld;
-            if (world == null)
-            {
-                SoulLogger.Warning(LOG_SOURCE,
-                    "Client world not available — cannot build AssetGuid lookup.");
-                return;
-            }
-
-            var prefabSystem = world.GetExistingSystemManaged<PrefabCollectionSystem>();
-            if (prefabSystem == null)
-            {
-                SoulLogger.Warning(LOG_SOURCE,
-                    "PrefabCollectionSystem not found — cannot build AssetGuid lookup.");
-                return;
-            }
-
-            // [CHANGED] Single pass over LilithsMind definitions builds both
-            //           the guid→name map (fed into BuildDisplayNameLookup) and
-            //           the tooltip lookup. Replaces the previous two-pass approach.
-            var guidHashToName = ScanDefinitions();
-
-            BuildDisplayNameLookup(prefabSystem, guidHashToName);
-        }
-        catch (Exception ex)
-        {
-            SoulLogger.Error(LOG_SOURCE,
-                $"Failed to build AssetGuid lookup: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Injects display name and tooltip overrides from the payload into
-    /// Localization._LocalizedStrings. Safe to call multiple times —
-    /// previous overrides are cleared before new ones are applied.
-    /// </summary>
-    public static void Inject(Network.ServerSyncPayload payload)
-    {
-        if (_nameToDisplayGuid.Count == 0)
-        {
-            SoulLogger.Warning(LOG_SOURCE,
-                "Display name lookup is empty — was BuildLookupTable() called?");
-            return;
-        }
-
-        ClearPrevious();
-
-        var table = Localization._LocalizedStrings;
-        if (table == null)
-        {
-            SoulLogger.Warning(LOG_SOURCE,
-                "Localization._LocalizedStrings is null — not initialized yet.");
-            return;
-        }
-
-        SoulLogger.Info(LOG_SOURCE,
-            $"Attempting injection — display lookup has {_nameToDisplayGuid.Count} entries, " +
-            $"tooltip lookup has {_nameToTooltipGuid.Count} entries, " +
-            $"payload has {payload.DisplayNameOverrides.Count} display name(s) " +
-            $"and {payload.TooltipOverrides.Count} tooltip(s).");
-
-        int nameCount    = 0;
-        int tooltipCount = 0;
-
-        foreach (var (prefabName, displayName) in payload.DisplayNameOverrides)
-        {
-            if (!_nameToDisplayGuid.TryGetValue(prefabName, out var assetGuid)) continue;
-
-            table[assetGuid] = displayName;
-            _injectedGuids.Add(assetGuid);
-            nameCount++;
-        }
-
-        foreach (var (prefabName, tooltip) in payload.TooltipOverrides)
-        {
-            if (!_nameToTooltipGuid.TryGetValue(prefabName, out var tooltipGuid)) continue;
-
-            table[tooltipGuid] = tooltip;
-            _injectedGuids.Add(tooltipGuid);
-            tooltipCount++;
-        }
-
-        SoulLogger.Info(LOG_SOURCE,
-            $"Injected {nameCount} display name(s) and {tooltipCount} tooltip(s) " +
-            $"from server '{payload.ServerIdentity}'.");
-    }
-
-    // ── Internal ─────────────────────────────────────────────
-
-    /// <summary>
-    /// Single reflection pass over all LilithsMind definition classes.
-    /// Builds _nameToTooltipGuid for entries with a DescKey, and returns
-    /// a guid hash → Name map for use by BuildDisplayNameLookup().
-    ///
-    /// [CHANGED] Replaces the two separate calls to BuildGuidHashToNameMap()
-    ///           and BuildTooltipLookup(). Previously both methods iterated
-    ///           all definition fields independently — now it's one pass.
-    ///
-    /// [PERFORMANCE] GetTypes() and GetFields() are cached by the runtime
-    ///               after the first call. Cost paid once at world ready.
-    /// </summary>
-    static Dictionary<int, string> ScanDefinitions()
-    {
-        var guidHashToName = new Dictionary<int, string>();
-        var mindAssembly   = typeof(PrefabDef).Assembly;
+        var mindAssembly = typeof(PrefabDef).Assembly;
 
         var definitionTypes = mindAssembly
             .GetTypes()
@@ -213,11 +103,12 @@ public static class LocalizationInjector
         if (definitionTypes.Count == 0)
         {
             SoulLogger.Warning(LOG_SOURCE,
-                "No definition classes found in LilithsMind — tooltip and name lookups will be empty.");
-            return guidHashToName;
+                "No definition classes found in LilithsMind — localization lookup will be empty.");
+            return;
         }
 
-        int tooltipCount = 0;
+        int nameCount = 0;
+        int descCount = 0;
 
         foreach (var type in definitionTypes)
         {
@@ -228,109 +119,133 @@ public static class LocalizationInjector
             {
                 var def = (PrefabDef)field.GetValue(null)!;
 
-                // Build guid→name map for display name lookup.
-                if (def.Name is not null)
-                    guidHashToName[def.GuidHash] = def.Name;
+                // ── Display name ──────────────────────────────
+                if (def.NameKey is not null)
+                {
+                    var nameGuid = ParseAssetGuid(def.NameKey);
 
-                // Build tooltip lookup for entries with a DescKey.
-                if (def.DescKey is null) continue;
+                    // Key by Prefab string (e.g. "Item_BloodEssence_T01").
+                    _nameToNameGuid[def.Prefab] = nameGuid;
 
-                var tooltipGuid = GuidFromHexString(def.DescKey);
+                    // Also key by Name if present (e.g. "BloodEssence").
+                    if (def.Name is not null)
+                        _nameToNameGuid[def.Name] = nameGuid;
 
-                _nameToTooltipGuid[def.Prefab] = tooltipGuid;
+                    nameCount++;
+                }
 
-                if (def.Name is not null)
-                    _nameToTooltipGuid[def.Name] = tooltipGuid;
+                // ── Tooltip / description ─────────────────────
+                if (def.DescKey is not null)
+                {
+                    var descGuid = ParseAssetGuid(def.DescKey);
 
-                tooltipCount++;
+                    _nameToDescGuid[def.Prefab] = descGuid;
+
+                    if (def.Name is not null)
+                        _nameToDescGuid[def.Name] = descGuid;
+
+                    descCount++;
+                }
             }
         }
 
         SoulLogger.Info(LOG_SOURCE,
-            $"Definition scan complete — {guidHashToName.Count} named entry/entries, " +
-            $"{tooltipCount} tooltip entry/entries, " +
+            $"Lookup tables built — {nameCount} name key(s), {descCount} desc key(s) " +
             $"from {definitionTypes.Count} definition class(es).");
-
-        return guidHashToName;
     }
 
     /// <summary>
-    /// Builds _nameToDisplayGuid from PrefabData.AssetGuid via _PrefabDataLookup.
-    /// Receives the guid→name map from ScanDefinitions() so no second reflection
-    /// pass is needed.
+    /// Injects display name and tooltip overrides from the payload into
+    /// Localization._LocalizedStrings. Safe to call multiple times —
+    /// previous overrides are cleared via LoadDefaultLanguage() before
+    /// new ones are applied.
     ///
-    /// [PERFORMANCE] O(n) over _PrefabDataLookup — run once at world ready.
+    /// Silently skips entries whose key is not in the LilithsMind lookup —
+    /// this means the admin used a prefab name that has no NameKey/DescKey
+    /// in LilithsMind yet. A warning is logged per skipped entry.
     /// </summary>
-    static void BuildDisplayNameLookup(
-        PrefabCollectionSystem prefabSystem,
-        Dictionary<int, string> guidHashToName)
+    public static void Inject(ServerSyncPayload payload)
     {
-        var lookup = prefabSystem._PrefabDataLookup;
-        var keys   = lookup.GetKeyArray(Allocator.Temp);
-        var vals   = lookup.GetValueArray(Allocator.Temp);
+        ClearPrevious();
 
-        try
+        var table = Localization._LocalizedStrings;
+        if (table == null)
         {
-            for (int i = 0; i < keys.Length; i++)
-            {
-                var prefabData = vals[i];
-                string prefab  = prefabData.AssetName.Value;
-
-                if (string.IsNullOrEmpty(prefab)) continue;
-
-                var guidStr = prefabData.AssetGuid.ToString();
-                if (string.IsNullOrEmpty(guidStr)) continue;
-
-                var assetGuid = GuidFromHexString(guidStr);
-
-                // Key by Prefab string (e.g. "Item_BloodEssence_T01").
-                _nameToDisplayGuid[prefab] = assetGuid;
-
-                // Also key by Name if LilithsMind has an entry for this prefab,
-                // using the guid→name map built by ScanDefinitions().
-                if (guidHashToName.TryGetValue(keys[i]._Value, out var name))
-                    _nameToDisplayGuid[name] = assetGuid;
-            }
+            SoulLogger.Warning(LOG_SOURCE,
+                "Localization._LocalizedStrings is null — not initialized yet.");
+            return;
         }
-        finally
+
+        int nameCount    = 0;
+        int tooltipCount = 0;
+        int skipped      = 0;
+
+        foreach (var (prefabName, displayName) in payload.DisplayNameOverrides)
         {
-            keys.Dispose();
-            vals.Dispose();
+            if (!_nameToNameGuid.TryGetValue(prefabName, out var assetGuid))
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"No NameKey found for '{prefabName}' — " +
+                    "add NameKey to its PrefabDef in LilithsMind to enable injection.");
+                skipped++;
+                continue;
+            }
+
+            table[assetGuid] = displayName;
+            _injectedGuids.Add(assetGuid);
+            nameCount++;
+        }
+
+        foreach (var (prefabName, tooltip) in payload.TooltipOverrides)
+        {
+            if (!_nameToDescGuid.TryGetValue(prefabName, out var assetGuid))
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"No DescKey found for '{prefabName}' — " +
+                    "add DescKey to its PrefabDef in LilithsMind to enable injection.");
+                skipped++;
+                continue;
+            }
+
+            table[assetGuid] = tooltip;
+            _injectedGuids.Add(assetGuid);
+            tooltipCount++;
         }
 
         SoulLogger.Info(LOG_SOURCE,
-            $"Display name lookup built with {_nameToDisplayGuid.Count} entries.");
+            $"Injected {nameCount} display name(s) and {tooltipCount} tooltip(s) " +
+            $"from server '{payload.ServerIdentity}'. " +
+            $"{skipped} skipped (missing LilithsMind NameKey/DescKey).");
     }
+
+    // ── Internal ─────────────────────────────────────────────
 
     /// <summary>
-    /// Parses a GUID string into an AssetGuid by reading four big-endian Int32s
-    /// directly from the hex characters, bypassing System.Guid.ToByteArray().
-    /// ToByteArray() on Windows returns mixed-endian bytes — the first three
-    /// GUID components are little-endian — producing keys that don't match
-    /// Localization._LocalizedStrings entries.
+    /// Removes previously injected overrides by reloading the vanilla
+    /// localization table. Called before applying a new server's payload.
+    ///
+    /// [PERFORMANCE] LoadDefaultLanguage() reads from disk — O(file size).
+    ///               Called once per server switch, never per-frame.
     /// </summary>
-    static AssetGuid GuidFromHexString(string guidString)
-    {
-        var hex = guidString.Replace("-", "");
-
-        int a = Convert.ToInt32(hex[ 0.. 8], 16);
-        int b = Convert.ToInt32(hex[ 8..16], 16);
-        int c = Convert.ToInt32(hex[16..24], 16);
-        int d = Convert.ToInt32(hex[24..32], 16);
-
-        return new AssetGuid(a, b, c, d);
-    }
-
     static void ClearPrevious()
     {
         if (_injectedGuids.Count == 0) return;
 
         Localization.LoadDefaultLanguage();
-
-        SoulLogger.Debug(LOG_SOURCE,
-            $"Cleared {_injectedGuids.Count} previous override(s) " +
-            "via localization reload.");
-
         _injectedGuids.Clear();
+
+        SoulLogger.Debug(LOG_SOURCE, "Previous overrides cleared via localization reload.");
     }
+
+    /// <summary>
+    /// Parses a GUID string into an AssetGuid using the game's own
+    /// FromString() method — guaranteed to match the internal format.
+    ///
+    /// [CHANGED] Replaced manual hex parsing with AssetGuid.FromString().
+    ///           Our previous manual implementation produced wrong keys
+    ///           (HasKey returned false). FromString() is the game's own
+    ///           parser and produces exactly the keys in _LocalizedStrings.
+    /// </summary>
+    static AssetGuid ParseAssetGuid(string guidString)
+        => AssetGuid.FromString(guidString);
 }

@@ -9,6 +9,16 @@ namespace LilithsCookbook.Systems;
 
 // [CHANGED] LilithsLogger → HeartLogger throughout.
 //           Added using LilithsHeart.Prefabs for PrefabNameResolver.
+//
+// [CHANGED] StationSystem now supports both RefinementstationRecipesBuffer
+//           (crafting stations) and WorkstationRecipesBuffer (player entity).
+//           Detection is automatic — the system checks which buffer type the
+//           entity has and operates on whichever is present. This allows the
+//           player's crafting menu to be configured in the same stations.json
+//           file using the player prefab name (e.g. "VampireUser").
+//
+//           If an entity has neither buffer type, a warning is logged and
+//           the entry is skipped — same behaviour as before.
 public static class StationSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.StationSystem";
@@ -41,17 +51,42 @@ public static class StationSystem
                 continue;
             }
 
-            if (!stationEntity.Has<RefinementstationRecipesBuffer>())
+            // [TEMP DEBUG]
+            HeartLogger.Info(LOG_SOURCE, $"[DEBUG] Found entity for '{stationName}': {stationEntity}");
+            HeartLogger.Info(LOG_SOURCE, $"[DEBUG] HasRefinement={stationEntity.Has<RefinementstationRecipesBuffer>()} HasWorkstation={stationEntity.Has<WorkstationRecipesBuffer>()}");
+
+            // [CHANGED] Detect buffer type — RefinementstationRecipesBuffer for
+
+            // [CHANGED] Detect buffer type — RefinementstationRecipesBuffer for
+            //           crafting stations, WorkstationRecipesBuffer for the player
+            //           entity. Whichever is present is used. If neither exists,
+            //           the entry is skipped with a warning.
+            bool hasRefinement  = stationEntity.Has<RefinementstationRecipesBuffer>();
+            bool hasWorkstation = stationEntity.Has<WorkstationRecipesBuffer>();
+
+            if (!hasRefinement && !hasWorkstation)
             {
-                HeartLogger.Warning(LOG_SOURCE, $"Station '{stationName}' does not have a RefinementstationRecipesBuffer, skipping.");
+                HeartLogger.Warning(LOG_SOURCE,
+                    $"'{stationName}' has neither RefinementstationRecipesBuffer nor " +
+                    $"WorkstationRecipesBuffer — skipping.");
                 continue;
             }
 
             if (entry.AddRecipes.Count > 0)
-                AddRecipes(stationEntity, entry.AddRecipes, stationName);
+            {
+                if (hasRefinement)
+                    AddRefinementRecipes(stationEntity, entry.AddRecipes, stationName);
+                else
+                    AddWorkstationRecipes(stationEntity, entry.AddRecipes, stationName);
+            }
 
             if (entry.RemoveRecipes.Count > 0)
-                RemoveRecipes(stationEntity, entry.RemoveRecipes, stationName);
+            {
+                if (hasRefinement)
+                    RemoveRefinementRecipes(stationEntity, entry.RemoveRecipes, stationName);
+                else
+                    RemoveWorkstationRecipes(stationEntity, entry.RemoveRecipes, stationName);
+            }
 
             changed++;
             HeartLogger.Info(LOG_SOURCE, $"Applied changes to station: '{stationName}'");
@@ -69,9 +104,9 @@ public static class StationSystem
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── RefinementstationRecipesBuffer helpers ────────────────────────────────
 
-    static void AddRecipes(Entity stationEntity, List<string> recipes, string stationName)
+    static void AddRefinementRecipes(Entity stationEntity, List<string> recipes, string stationName)
     {
         var buffer = stationEntity.ReadBuffer<RefinementstationRecipesBuffer>();
 
@@ -79,7 +114,8 @@ public static class StationSystem
         {
             if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
             {
-                HeartLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to add: '{recipeName}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE,
+                    $"[{stationName}] Could not resolve recipe to add: '{recipeName}', skipping.");
                 continue;
             }
 
@@ -96,7 +132,8 @@ public static class StationSystem
 
             if (alreadyExists)
             {
-                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
                 continue;
             }
 
@@ -111,7 +148,7 @@ public static class StationSystem
         }
     }
 
-    static void RemoveRecipes(Entity stationEntity, List<string> recipes, string stationName)
+    static void RemoveRefinementRecipes(Entity stationEntity, List<string> recipes, string stationName)
     {
         var buffer = stationEntity.ReadBuffer<RefinementstationRecipesBuffer>();
 
@@ -119,7 +156,8 @@ public static class StationSystem
         {
             if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
             {
-                HeartLogger.Warning(LOG_SOURCE, $"[{stationName}] Could not resolve recipe to remove: '{recipeName}', skipping.");
+                HeartLogger.Warning(LOG_SOURCE,
+                    $"[{stationName}] Could not resolve recipe to remove: '{recipeName}', skipping.");
                 continue;
             }
 
@@ -138,7 +176,84 @@ public static class StationSystem
             }
 
             if (!found)
-                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' not found in station, nothing to remove.");
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Recipe '{recipeName}' not found in station, nothing to remove.");
+        }
+    }
+
+    // ── WorkstationRecipesBuffer helpers ──────────────────────────────────────
+
+    // [CHANGED] WorkstationRecipesBuffer uses a different struct type than
+    //           RefinementstationRecipesBuffer — it has only RecipeGuid with
+    //           no Disabled/Unlocked fields. Separate helpers handle it cleanly.
+
+    static void AddWorkstationRecipes(Entity stationEntity, List<string> recipes, string stationName)
+    {
+        var buffer = stationEntity.ReadBuffer<WorkstationRecipesBuffer>();
+
+        foreach (var recipeName in recipes)
+        {
+            if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
+            {
+                HeartLogger.Warning(LOG_SOURCE,
+                    $"[{stationName}] Could not resolve recipe to add: '{recipeName}', skipping.");
+                continue;
+            }
+
+            // Check for duplicates before adding.
+            bool alreadyExists = false;
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                if (buffer[i].RecipeGuid.Equals(recipeGuid))
+                {
+                    alreadyExists = true;
+                    break;
+                }
+            }
+
+            if (alreadyExists)
+            {
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
+                continue;
+            }
+
+            buffer.Add(new WorkstationRecipesBuffer { RecipeGuid = recipeGuid });
+
+            HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Added recipe '{recipeName}'.");
+        }
+    }
+
+    static void RemoveWorkstationRecipes(Entity stationEntity, List<string> recipes, string stationName)
+    {
+        var buffer = stationEntity.ReadBuffer<WorkstationRecipesBuffer>();
+
+        foreach (var recipeName in recipes)
+        {
+            if (!PrefabNameResolver.TryResolve(recipeName, out PrefabGUID recipeGuid))
+            {
+                HeartLogger.Warning(LOG_SOURCE,
+                    $"[{stationName}] Could not resolve recipe to remove: '{recipeName}', skipping.");
+                continue;
+            }
+
+            bool found = false;
+
+            // Iterate backwards when removing from a DynamicBuffer to keep indices stable.
+            for (int i = buffer.Length - 1; i >= 0; i--)
+            {
+                if (buffer[i].RecipeGuid.Equals(recipeGuid))
+                {
+                    buffer.RemoveAt(i);
+                    HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Removed recipe '{recipeName}'.");
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Recipe '{recipeName}' not found in station, nothing to remove.");
         }
     }
 }

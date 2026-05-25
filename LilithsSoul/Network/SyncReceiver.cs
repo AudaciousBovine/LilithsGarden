@@ -9,16 +9,6 @@ using LilithsSoul.Services;
 //  Intercepts system chat messages from Heart and reassembles
 //  the chunked ServerSyncPayload.
 //
-//  Why chat messages?
-//  ──────────────────
-//  Unity.Netcode's CustomMessagingManager requires types not
-//  available in VampireReferenceAssemblies. The established
-//  pattern across shipped V Rising mods (Eclipse, ZUI, XPShared)
-//  is to use ChatMessageServerEvent / ServerChatMessageType.System
-//  for server→client data. SyncReceiver integrates with that
-//  pattern by being called from a Harmony patch on the client
-//  chat system (ClientChatSystemPatch).
-//
 //  Chunk protocol:
 //  ───────────────
 //  Heart sends N messages of the form [[LG:N]]<content>,
@@ -30,8 +20,11 @@ using LilithsSoul.Services;
 //  ──────────────────
 //  ClientChatSystemPatch calls TryHandleMessage(string) for
 //  every incoming system message. Returns true if the message
-//  was a LilithsGarden chunk (consumed), false otherwise
-//  (passed through to normal chat handling).
+//  was a LilithsGarden chunk (consumed), false otherwise.
+//
+//  [CHANGED] Added RecipePatcher.Apply() call in ApplyPayload()
+//            after LocalizationInjector.Inject(), using the new
+//            RecipeOverrides field on ServerSyncPayload.
 //
 //  [PERFORMANCE] Per-message check is a string.StartsWith call
 //                on the hot chat path — effectively free.
@@ -43,7 +36,7 @@ namespace LilithsSoul.Network;
 
 public static class SyncReceiver
 {
-    private const string LOG_SOURCE  = "LilithsSoul.SyncReceiver";
+    private const string LOG_SOURCE   = "LilithsSoul.SyncReceiver";
     private const string CHUNK_PREFIX = "[[LG:";
     private const string CHUNK_END    = "[[LG:end]]";
 
@@ -103,6 +96,10 @@ public static class SyncReceiver
         // PrefabCollectionSystem is available.
         LocalizationInjector.BuildLookupTable();
 
+        // [CHANGED] Build the name → GUID map for RecipePatcher now
+        //           that PrefabCollectionSystem is available.
+        RecipePatcher.BuildNameMap();
+
         if (_pendingPayload != null)
         {
             SoulLogger.Info(LOG_SOURCE,
@@ -139,7 +136,8 @@ public static class SyncReceiver
 
             SoulLogger.Info(LOG_SOURCE,
                 $"Sync payload received from '{payload.ServerIdentity}' " +
-                $"(hash: {payload.PayloadHash}).");
+                $"(hash: {payload.PayloadHash}, " +
+                $"recipes: {payload.RecipeOverrides.Count}).");
 
             WriteToDiskIfChanged(payload);
 
@@ -157,7 +155,13 @@ public static class SyncReceiver
 
     static void ApplyPayload(ServerSyncPayload payload)
     {
+        // 1. Localization — display names and tooltips.
         LocalizationInjector.Inject(payload);
+
+        // [CHANGED] 2. Recipe patching — ingredients, outputs, craft duration.
+        //           Runs after localization so item name injection is already
+        //           applied before ECS buffers are written.
+        RecipePatcher.Apply(payload.RecipeOverrides);
     }
 
     static void WriteToDiskIfChanged(ServerSyncPayload payload)

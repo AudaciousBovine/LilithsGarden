@@ -9,8 +9,8 @@ public static partial class WeaponsList
         Name    = "BoneSword",
         GuidHash = -2085919458,
         Prefab  = "Item_Weapon_Sword_T01_Bone",
-        NameKey = null,
-        DescKey = null,
+        NameKey = "8b38b801-0f12-4e6f-a1d6-2c4226e0915b",
+        DescKey = "01e7d9c3-2bf4-4c60-94d4-1e75be7cf658",
     };
 
     public static readonly PrefabDef Item_Weapon_Sword_T02_Bone_Reinforced = new()

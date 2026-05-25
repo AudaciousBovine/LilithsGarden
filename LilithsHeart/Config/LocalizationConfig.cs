@@ -11,6 +11,16 @@ using LilithsHeart.Foundation;
 //  Files are loaded and merged in alphabetical order.
 //  Later files win on key conflicts — admins can layer overrides.
 //
+//  Key format: prefab Name (from LilithsMind PrefabDef.Name) or
+//  Prefab string (e.g. "Item_BloodEssence_T01"). Soul resolves
+//  these to AssetGuids via LilithsMind's NameKey/DescKey fields.
+//
+//  ⚠️  IMPORTANT: Overrides only take effect on the client if
+//  LilithsMind has a PrefabDef entry with NameKey (for display names)
+//  or DescKey (for tooltips) populated for that prefab. Entries
+//  referencing unknown or incomplete prefabs are silently skipped
+//  on the client with a warning in the Soul log.
+//
 //  [PERFORMANCE] All files are read once at world ready and merged
 //                into two flat dictionaries for O(1) lookup.
 //                No file I/O occurs after initialization.
@@ -46,9 +56,6 @@ public static class LocalizationConfig
         HeartLogger.Info(LOG_SOURCE, "Reloading localization overrides...");
         Load();
 
-        // [ADDED] Eagerly rebuild the sync payload cache so the next connecting
-        //         client receives the updated localization immediately.
-        //         This runs after Load() so the dictionaries are fully populated.
         Heart.OnLocalizationReloaded();
     }
 
@@ -140,6 +147,12 @@ public static class LocalizationConfig
         }
     }
 
+    // [CHANGED] Example file simplified to use only Item_BloodEssence_T01,
+    //           which has NameKey and DescKey confirmed in LilithsMind and
+    //           is verified working end-to-end via Soul log output.
+    //           The previous example also referenced Item_Ingredient_Plant_Cotton
+    //           which has no LilithsMind entry and caused a skipped-entry warning
+    //           on every client connect. Examples should only show working cases.
     static void EnsureExampleFile()
     {
         var examplePath = Path.Combine(HeartPaths.LocalizationDir, "example.json");
@@ -147,14 +160,10 @@ public static class LocalizationConfig
 
         const string example = """
 {
-  "_readme": "Copy and rename this file (e.g. items.json). Keys are prefab OriginalName or NewName. Null leaves that field vanilla. Files load alphabetically — later files win on key conflicts.",
+  "_readme": "Copy and rename this file (e.g. items.json). Keys are the prefab Name or Prefab string from LilithsMind PrefabDef entries (e.g. 'BloodEssence' or 'Item_BloodEssence_T01'). Overrides only take effect on clients if LilithsMind has NameKey (for DisplayName) or DescKey (for Tooltip) populated for that prefab — check the Soul client log for any skipped entries. Files load alphabetically; later files win on key conflicts.",
   "Item_BloodEssence_T01": {
-    "DisplayName": "Vitae",
-    "Tooltip": "Concentrated life force, drawn from the living."
-  },
-  "Item_Ingredient_Plant_Cotton": {
-    "DisplayName": "Moonweave",
-    "Tooltip": null
+    "DisplayName": "Red Marble",
+    "Tooltip": "A gorgeous Red Marble dropped from the living, it feels pleasant in the palm."
   }
 }
 """;

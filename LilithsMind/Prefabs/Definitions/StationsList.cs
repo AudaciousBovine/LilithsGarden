@@ -18,6 +18,12 @@ public static class StationsList
 {
     // ── Crafting Stations ─────────────────────────────────────────────────────
 
+    public static readonly PrefabDef CraftingStation_Player = new()
+    {
+        Name    = "PlayerCrafting",
+        GuidHash = 1420623103,
+    };
+
     public static readonly PrefabDef TM_CraftingStation_SimpleCraftingBench = new()
     {
         Name    = "SimpleWorkbench",
