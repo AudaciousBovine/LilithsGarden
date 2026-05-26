@@ -7,18 +7,32 @@ using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
-// [CHANGED] LilithsLogger → HeartLogger throughout.
-//           Added using LilithsHeart.Prefabs for PrefabNameResolver.
+// ============================================================
+//  StationSystem — LilithsCookbook
 //
-// [CHANGED] StationSystem now supports both RefinementstationRecipesBuffer
-//           (crafting stations) and WorkstationRecipesBuffer (player entity).
-//           Detection is automatic — the system checks which buffer type the
-//           entity has and operates on whichever is present. This allows the
-//           player's crafting menu to be configured in the same stations.json
-//           file using the player prefab name (e.g. "VampireUser").
+//  Applies crafting station recipe changes from stations.json.
 //
-//           If an entity has neither buffer type, a warning is logged and
-//           the entry is skipped — same behaviour as before.
+//  Supports two buffer types:
+//    • RefinementstationRecipesBuffer — refining stations
+//      (Furnace, Grinder, etc.) where production is automatic.
+//    • WorkstationRecipesBuffer — crafting stations (Simple
+//      Workbench, etc.) and the player entity crafting menu.
+//      Buffer type is detected automatically per station entry.
+//
+//  Two-pass approach:
+//  ──────────────────
+//  Pass 1: Patch prefab entities, then call RegisterRecipes()
+//          and RegisterGameData().
+//  Pass 2: Re-patch WorkstationRecipesBuffer prefab entities
+//          (RegisterGameData resets them), patch live User
+//          entities for player crafting, and patch live placed
+//          station entities via GetAllEntities scan.
+//
+//  [PERFORMANCE] GetAllEntities scans all ~560K entities once
+//                at startup per WorkstationRecipesBuffer station.
+//                Acceptable cost for a one-time startup operation.
+//                No per-frame cost after startup.
+// ============================================================
 public static class StationSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.StationSystem";
@@ -34,6 +48,11 @@ public static class StationSystem
         }
 
         int changed = 0;
+
+        // ── Pass 1: Patch prefab entities ─────────────────────────────────────
+        // All add/remove changes applied to prefab entities first.
+        // Registration runs after this pass — live entity patching
+        // must wait until after RegisterGameData() resets live buffers.
 
         foreach (var (stationName, entry) in config.Stations)
         {
@@ -51,16 +70,6 @@ public static class StationSystem
                 continue;
             }
 
-            // [TEMP DEBUG]
-            HeartLogger.Info(LOG_SOURCE, $"[DEBUG] Found entity for '{stationName}': {stationEntity}");
-            HeartLogger.Info(LOG_SOURCE, $"[DEBUG] HasRefinement={stationEntity.Has<RefinementstationRecipesBuffer>()} HasWorkstation={stationEntity.Has<WorkstationRecipesBuffer>()}");
-
-            // [CHANGED] Detect buffer type — RefinementstationRecipesBuffer for
-
-            // [CHANGED] Detect buffer type — RefinementstationRecipesBuffer for
-            //           crafting stations, WorkstationRecipesBuffer for the player
-            //           entity. Whichever is present is used. If neither exists,
-            //           the entry is skipped with a warning.
             bool hasRefinement  = stationEntity.Has<RefinementstationRecipesBuffer>();
             bool hasWorkstation = stationEntity.Has<WorkstationRecipesBuffer>();
 
@@ -92,15 +101,162 @@ public static class StationSystem
             HeartLogger.Info(LOG_SOURCE, $"Applied changes to station: '{stationName}'");
         }
 
-        if (changed > 0)
-        {
-            Heart.GameDataSystem.RegisterRecipes();
-            Heart.PrefabCollectionSystem.RegisterGameData();
-            HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
-        }
-        else
+        if (changed == 0)
         {
             HeartLogger.Info(LOG_SOURCE, "No stations had ChangesEnabled = true, skipping registration.");
+            return;
+        }
+
+        // ── Registration ──────────────────────────────────────────────────────
+        // RegisterGameData() resets WorkstationRecipesBuffer on all live entities.
+        // All live entity patching must happen after this call.
+        Heart.GameDataSystem.RegisterRecipes();
+        Heart.PrefabCollectionSystem.RegisterGameData();
+        HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
+
+        // ── Pass 2: Live entity patching + prefab re-patch ────────────────────
+        // WorkstationRecipesBuffer prefab entities are reset by RegisterGameData()
+        // so we re-patch them here. Live User entities and placed station entities
+        // are also patched here so connected players see changes immediately.
+
+        foreach (var (stationName, entry) in config.Stations)
+        {
+            if (!entry.ChangesEnabled) continue;
+
+            if (!PrefabNameResolver.TryResolve(stationName, out PrefabGUID guid)) continue;
+
+            if (!Heart.PrefabCollectionSystem._PrefabGuidToEntityMap.TryGetValue(guid, out Entity stationEntity)) continue;
+
+            bool hasWorkstation = stationEntity.Has<WorkstationRecipesBuffer>();
+            bool isPlayerEntity = stationEntity.Has<ProjectM.Network.User>();
+
+            if (!hasWorkstation) continue;
+
+            if (isPlayerEntity)
+            {
+                // Patch live User entities so connected players see changes immediately.
+                PatchLiveUserEntities(entry.AddRecipes, entry.RemoveRecipes, stationName);
+                Heart.RegisterPlayerRecipeChanges(entry.AddRecipes, entry.RemoveRecipes);
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Registered {entry.AddRecipes.Count} add(s) and " +
+                    $"{entry.RemoveRecipes.Count} remove(s) with Heart for Soul sync.");
+            }
+            else
+            {
+                // Re-patch prefab entity — RegisterGameData() reset it.
+                if (entry.AddRecipes.Count > 0)
+                    AddWorkstationRecipes(stationEntity, entry.AddRecipes, stationName);
+                if (entry.RemoveRecipes.Count > 0)
+                    RemoveWorkstationRecipes(stationEntity, entry.RemoveRecipes, stationName);
+                HeartLogger.Info(LOG_SOURCE,
+                    $"[{stationName}] Re-patched prefab entity after registration.");
+
+                // Patch existing placed station entities in the world.
+                // CreateEntityQuery cannot find placed workstation entities —
+                // GetAllEntities is required to locate them by GUID.
+                PatchLiveStationEntities(guid, entry.AddRecipes, entry.RemoveRecipes, stationName);
+
+                // Register with Heart so Soul can patch the client-side display.
+                Heart.RegisterStationRecipeChanges(stationName, entry.AddRecipes, entry.RemoveRecipes);
+            }
+        }
+    }
+
+    // ── Live User entity patching ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Patches WorkstationRecipesBuffer on all live User entities.
+    /// Called in Pass 2 after RegisterGameData() so changes persist.
+    ///
+    /// [PERFORMANCE] One query at startup — no per-frame cost.
+    /// </summary>
+    static void PatchLiveUserEntities(
+        List<string> addRecipes,
+        List<string> removeRecipes,
+        string stationName)
+    {
+        var em = Heart.EntityManager;
+
+        var query = em.CreateEntityQuery(
+            ComponentType.ReadWrite<WorkstationRecipesBuffer>(),
+            ComponentType.ReadOnly<ProjectM.Network.User>()
+        );
+
+        var entities = query.ToEntityArray(Unity.Collections.Allocator.Temp);
+
+        try
+        {
+            HeartLogger.Info(LOG_SOURCE,
+                $"[{stationName}] Patching {entities.Length} live User entity(s).");
+
+            foreach (var userEntity in entities)
+            {
+                if (addRecipes.Count > 0)
+                    AddWorkstationRecipes(userEntity, addRecipes, stationName);
+
+                if (removeRecipes.Count > 0)
+                    RemoveWorkstationRecipes(userEntity, removeRecipes, stationName);
+            }
+        }
+        finally
+        {
+            entities.Dispose();
+        }
+    }
+
+    // ── Live placed station entity patching ───────────────────────────────────
+
+    /// <summary>
+    /// Patches WorkstationRecipesBuffer on all placed world instances of a station
+    /// matching the given PrefabGUID.
+    ///
+    /// Uses GetAllEntities() because CreateEntityQuery cannot find placed station
+    /// entities — they exist in a different ECS chunk and are not returned by
+    /// component queries. GetAllEntities() is required to locate them by GUID.
+    ///
+    /// Called in Pass 2 after RegisterGameData() so placed entities have been
+    /// restored from the world save and are patchable.
+    ///
+    /// [PERFORMANCE] Scans all entities once per WorkstationRecipesBuffer station
+    ///               at startup. Acceptable cost for a one-time startup operation.
+    /// </summary>
+    static void PatchLiveStationEntities(
+        PrefabGUID stationGuid,
+        List<string> addRecipes,
+        List<string> removeRecipes,
+        string stationName)
+    {
+        var em = Heart.EntityManager;
+        var allEntities = em.GetAllEntities(Unity.Collections.Allocator.Temp);
+
+        try
+        {
+            int patched = 0;
+
+            foreach (var entity in allEntities)
+            {
+                if (!em.HasComponent<Stunlock.Core.PrefabGUID>(entity)) continue;
+
+                var prefabGuid = em.GetComponentData<Stunlock.Core.PrefabGUID>(entity);
+                if (!prefabGuid.Equals(stationGuid)) continue;
+
+                if (!em.HasBuffer<WorkstationRecipesBuffer>(entity)) continue;
+
+                if (addRecipes.Count > 0)
+                    AddWorkstationRecipes(entity, addRecipes, stationName);
+
+                if (removeRecipes.Count > 0)
+                    RemoveWorkstationRecipes(entity, removeRecipes, stationName);
+
+                patched++;
+            }
+
+            HeartLogger.Info(LOG_SOURCE,
+                $"[{stationName}] Patched {patched} live station entity(s).");
+        }
+        finally
+        {
+            allEntities.Dispose();
         }
     }
 
@@ -119,7 +275,6 @@ public static class StationSystem
                 continue;
             }
 
-            // Check for duplicates before adding.
             bool alreadyExists = false;
             for (int i = 0; i < buffer.Length; i++)
             {
@@ -163,7 +318,6 @@ public static class StationSystem
 
             bool found = false;
 
-            // Iterate backwards when removing from a DynamicBuffer to keep indices stable.
             for (int i = buffer.Length - 1; i >= 0; i--)
             {
                 if (buffer[i].RecipeGuid.Equals(recipeGuid))
@@ -183,10 +337,6 @@ public static class StationSystem
 
     // ── WorkstationRecipesBuffer helpers ──────────────────────────────────────
 
-    // [CHANGED] WorkstationRecipesBuffer uses a different struct type than
-    //           RefinementstationRecipesBuffer — it has only RecipeGuid with
-    //           no Disabled/Unlocked fields. Separate helpers handle it cleanly.
-
     static void AddWorkstationRecipes(Entity stationEntity, List<string> recipes, string stationName)
     {
         var buffer = stationEntity.ReadBuffer<WorkstationRecipesBuffer>();
@@ -200,7 +350,6 @@ public static class StationSystem
                 continue;
             }
 
-            // Check for duplicates before adding.
             bool alreadyExists = false;
             for (int i = 0; i < buffer.Length; i++)
             {
@@ -219,7 +368,6 @@ public static class StationSystem
             }
 
             buffer.Add(new WorkstationRecipesBuffer { RecipeGuid = recipeGuid });
-
             HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Added recipe '{recipeName}'.");
         }
     }
@@ -239,7 +387,6 @@ public static class StationSystem
 
             bool found = false;
 
-            // Iterate backwards when removing from a DynamicBuffer to keep indices stable.
             for (int i = buffer.Length - 1; i >= 0; i--)
             {
                 if (buffer[i].RecipeGuid.Equals(recipeGuid))

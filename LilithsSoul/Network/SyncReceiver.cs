@@ -22,9 +22,17 @@ using LilithsSoul.Services;
 //  every incoming system message. Returns true if the message
 //  was a LilithsGarden chunk (consumed), false otherwise.
 //
-//  [CHANGED] Added RecipePatcher.Apply() call in ApplyPayload()
-//            after LocalizationInjector.Inject(), using the new
-//            RecipeOverrides field on ServerSyncPayload.
+//  [CHANGED] NotifyWorldReady now accepts the connection string
+//            from ClientBootstrapSystem. On world ready, Soul
+//            loads ServerRegistry (servers.json), looks up the
+//            connection string, and pre-applies the cached
+//            sync.json BEFORE CharacterHUD builds. This eliminates
+//            the UI timing race where the server payload arrives
+//            after the UI is already drawn from stale vanilla data.
+//
+//  [CHANGED] ProcessAccumulatedChunks now calls
+//            ServerRegistry.Register() when a payload arrives so
+//            future connects can pre-apply without waiting.
 //
 //  [PERFORMANCE] Per-message check is a string.StartsWith call
 //                on the hot chat path — effectively free.
@@ -49,6 +57,10 @@ public static class SyncReceiver
     // Payload received before world was ready — applied on world ready.
     static ServerSyncPayload? _pendingPayload;
 
+    // [CHANGED] Connection string from ClientBootstrapSystem, set in NotifyWorldReady.
+    // Used to register server→folder mapping when payload arrives.
+    static string _connectionString = string.Empty;
+
     // ── Called from ClientChatSystemPatch ────────────────────
 
     /// <summary>
@@ -60,14 +72,12 @@ public static class SyncReceiver
     {
         if (string.IsNullOrEmpty(message)) return false;
 
-        // End sentinel — reassemble and process.
         if (message == CHUNK_END)
         {
             ProcessAccumulatedChunks();
             return true;
         }
 
-        // Numbered chunk — extract content after [[LG:N]].
         if (message.StartsWith(CHUNK_PREFIX))
         {
             int closeBracket = message.IndexOf("]]", CHUNK_PREFIX.Length,
@@ -86,19 +96,25 @@ public static class SyncReceiver
 
     /// <summary>
     /// Called by ClientInitPatch when the client ECS world is ready.
-    /// Applies any payload that arrived before prefabs were loaded.
+    ///
+    /// [CHANGED] Now accepts connectionString from ClientBootstrapSystem.
+    /// Loads ServerRegistry, looks up the cached sync folder for this
+    /// server, and pre-applies the cached sync.json immediately so
+    /// patches are in place before CharacterHUD builds.
     /// </summary>
-    public static void NotifyWorldReady()
+    public static void NotifyWorldReady(string connectionString)
     {
-        _clientWorldReady = true;
+        _clientWorldReady  = true;
+        _connectionString  = connectionString;
 
-        // Build the prefab name → AssetGuid lookup now that
-        // PrefabCollectionSystem is available.
+        // Build lookup tables now that PrefabCollectionSystem is available.
         LocalizationInjector.BuildLookupTable();
-
-        // [CHANGED] Build the name → GUID map for RecipePatcher now
-        //           that PrefabCollectionSystem is available.
         RecipePatcher.BuildNameMap();
+
+        // [CHANGED] Pre-apply cached sync.json from disk before the server
+        //           payload arrives so the UI builds with correct data.
+        //           This uses servers.json to map connection string → folder.
+        TryPreApplyCachedSync(connectionString);
 
         if (_pendingPayload != null)
         {
@@ -110,6 +126,67 @@ public static class SyncReceiver
     }
 
     // ── Internal ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Attempts to load and apply a cached sync.json from disk
+    /// based on the current server connection string.
+    ///
+    /// [CHANGED] New method — pre-applies cached data before server
+    ///           payload arrives to prevent UI timing race conditions.
+    ///
+    /// [PERFORMANCE] One disk read at world ready — negligible.
+    /// </summary>
+    static void TryPreApplyCachedSync(string connectionString)
+    {
+        ServerRegistry.Load();
+
+        if (string.IsNullOrEmpty(connectionString))
+        {
+            SoulLogger.Debug(LOG_SOURCE,
+                "No connection string available — cannot pre-apply cached sync.");
+            return;
+        }
+
+        if (!ServerRegistry.TryGetFolderName(connectionString, out var folderName))
+        {
+            SoulLogger.Info(LOG_SOURCE,
+                $"No cached sync for '{connectionString}' — waiting for server payload.");
+            return;
+        }
+
+        var syncFile = SoulPaths.SyncFile(folderName);
+        if (!File.Exists(syncFile))
+        {
+            SoulLogger.Info(LOG_SOURCE,
+                $"Sync file not found for '{folderName}' — waiting for server payload.");
+            return;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(syncFile);
+            var payload = JsonSerializer.Deserialize<ServerSyncPayload>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (payload == null)
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"Cached sync.json for '{folderName}' deserialized to null — skipping.");
+                return;
+            }
+
+            SoulLogger.Info(LOG_SOURCE,
+                $"Pre-applying cached sync for '{folderName}' " +
+                $"(hash: {payload.PayloadHash}) before UI builds.");
+
+            ApplyPayload(payload);
+        }
+        catch (Exception ex)
+        {
+            SoulLogger.Warning(LOG_SOURCE,
+                $"Failed to pre-apply cached sync for '{folderName}': {ex.Message}");
+        }
+    }
 
     static void ProcessAccumulatedChunks()
     {
@@ -139,6 +216,11 @@ public static class SyncReceiver
                 $"(hash: {payload.PayloadHash}, " +
                 $"recipes: {payload.RecipeOverrides.Count}).");
 
+            // [CHANGED] Register connection string → folder name mapping so
+            //           future connects can pre-apply without waiting for payload.
+            if (!string.IsNullOrEmpty(_connectionString))
+                ServerRegistry.Register(_connectionString, payload.ServerIdentity);
+
             WriteToDiskIfChanged(payload);
 
             if (_clientWorldReady)
@@ -158,10 +240,14 @@ public static class SyncReceiver
         // 1. Localization — display names and tooltips.
         LocalizationInjector.Inject(payload);
 
-        // [CHANGED] 2. Recipe patching — ingredients, outputs, craft duration.
-        //           Runs after localization so item name injection is already
-        //           applied before ECS buffers are written.
+        // 2. Recipe patching — ingredients, outputs, craft duration.
         RecipePatcher.Apply(payload.RecipeOverrides);
+
+        // 3. Station recipe patching — WorkstationRecipesBuffer on placed stations.
+        RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides);
+
+        // 4. Player recipe patching — add/remove from client player entity buffer.
+        RecipePatcher.ApplyPlayerRecipes(payload.PlayerRecipesToAdd, payload.PlayerRecipesToRemove);
     }
 
     static void WriteToDiskIfChanged(ServerSyncPayload payload)

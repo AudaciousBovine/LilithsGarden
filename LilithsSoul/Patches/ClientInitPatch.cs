@@ -9,14 +9,13 @@ using LilithsSoul.Network;
 //  Detects when the client ECS world and prefabs are fully loaded.
 //
 //  Hook target: GameDataManager.OnUpdate (postfix, single-fire)
-//  ──────────────────────────────────────────────────────────────
-//  GameDataManager.OnUpdate fires every frame once initialized,
-//  so we guard with a bool and only act once. This is the
-//  established pattern for client-side V Rising mods.
 //
-//  We cannot use LoadGameData as it doesn't exist on the client-
-//  side GameDataManager. OnUpdate fires after all prefabs and
-//  game data are ready.
+//  [CHANGED] Now reads ClientBootstrapSystem.ConnectionString and
+//            passes it to SyncReceiver.NotifyWorldReady(). This
+//            allows SyncReceiver to look up the server in servers.json
+//            and pre-apply the cached sync.json BEFORE CharacterHUD
+//            builds — eliminating the UI timing race condition where
+//            the server payload arrives after the UI is already built.
 //
 //  [PERFORMANCE] Guard check is a single bool read per frame
 //                until initialization — negligible cost.
@@ -36,9 +35,6 @@ internal static class ClientInitPatch
     static void Postfix(GameDataManager __instance)
     {
         if (_initialized) return;
-
-        // Guard: only fire once game data is actually loaded.
-        // GameDataManager.GameDataInitialized is the reliable flag.
         if (!__instance.GameDataInitialized) return;
 
         _initialized = true;
@@ -46,7 +42,42 @@ internal static class ClientInitPatch
         try
         {
             SoulLogger.Info(LOG_SOURCE, "Client world ready — game data initialized.");
-            SyncReceiver.NotifyWorldReady();
+
+            // [CHANGED] Read the current server connection string from
+            //           ClientBootstrapSystem so SyncReceiver can look up
+            //           the cached sync.json before the server payload arrives.
+            //           ConnectionString is populated before OnUpdate fires
+            //           since the client must already be connecting.
+            //
+            //           [PERFORMANCE] One system lookup — negligible.
+            string connectionString = string.Empty;
+
+            try
+            {
+                var world = Soul.ClientWorld;
+                if (world != null)
+                {
+                    var bootstrap = world.GetExistingSystemManaged<ClientBootstrapSystem>();
+                    if (bootstrap != null)
+                    {
+                        connectionString = bootstrap.ConnectionString ?? string.Empty;
+                        SoulLogger.Info(LOG_SOURCE,
+                            $"Connection string: '{connectionString}'");
+                    }
+                    else
+                    {
+                        SoulLogger.Warning(LOG_SOURCE,
+                            "ClientBootstrapSystem not found — cannot read connection string.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"Could not read ConnectionString: {ex.Message}");
+            }
+
+            SyncReceiver.NotifyWorldReady(connectionString);
         }
         catch (Exception ex)
         {

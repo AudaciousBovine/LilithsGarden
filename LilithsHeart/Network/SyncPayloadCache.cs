@@ -6,22 +6,9 @@ using LilithsHeart.Foundation;
 // ============================================================
 //  SyncPayloadCache — LilithsHeart
 //
-//  Holds the pre-serialized ServerSyncPayload JSON string ready
-//  to be chunked and sent to any connecting Soul client.
-//
-//  Build() is called once at Heart initialization and again
-//  whenever LocalizationConfig is reloaded (server admin action)
-//  or when modules register recipe overrides.
-//
-//  [CHANGED] Rebuild() now accepts an optional recipe overrides
-//  dict so that when localization is reloaded, the existing
-//  recipe overrides (registered by Cookbook during init) are
-//  preserved in the rebuilt payload rather than being lost.
-//
-//  [PERFORMANCE] Build() runs O(1) serialization at init time.
-//                SyncSender reads CachedJson with no allocation.
-//                Thread safety: volatile string reference — safe
-//                for single-writer (main thread) / multi-reader.
+//  [CHANGED] Rebuild() now accepts player recipe add/remove lists
+//            in addition to recipe overrides, so localization
+//            reloads preserve all registered module changes.
 // ============================================================
 
 namespace LilithsHeart.Network;
@@ -32,58 +19,62 @@ public static class SyncPayloadCache
 
     static volatile string? _cachedJson;
 
-    /// <summary>
-    /// The pre-serialized JSON payload ready to be chunked and sent.
-    /// Null until Build() has been called successfully.
-    /// </summary>
     public static string? CachedJson => _cachedJson;
 
-    /// <summary>
-    /// Builds and caches the JSON payload from the current server state.
-    /// Recipe overrides start empty — populated by Rebuild() after modules
-    /// register their changes.
-    /// </summary>
     public static void Build(string serverIdentity)
-        => BuildInternal(serverIdentity, new Dictionary<string, RecipeOverrideData>());
+        => BuildInternal(serverIdentity,
+            new Dictionary<string, RecipeOverrideData>(),
+            new Dictionary<string, StationRecipeOverrideData>(),
+            new List<string>(),
+            new List<string>());
 
-    /// <summary>
-    /// Rebuilds the cached payload, preserving the provided recipe overrides.
-    /// Call when localization is reloaded or when recipe overrides change.
-    ///
-    /// [CHANGED] Added recipeOverrides parameter so a localization reload
-    ///           does not wipe out recipe overrides that were registered
-    ///           during module initialization.
-    /// </summary>
-    public static void Rebuild(string serverIdentity, Dictionary<string, RecipeOverrideData> recipeOverrides)
-        => BuildInternal(serverIdentity, recipeOverrides);
+    public static void Rebuild(
+        string serverIdentity,
+        Dictionary<string, RecipeOverrideData> recipeOverrides,
+        Dictionary<string, StationRecipeOverrideData> stationRecipeOverrides,
+        List<string> playerRecipesToAdd,
+        List<string> playerRecipesToRemove)
+        => BuildInternal(serverIdentity, recipeOverrides, stationRecipeOverrides,
+            playerRecipesToAdd, playerRecipesToRemove);
 
     // ── Internal ─────────────────────────────────────────────
 
-    static void BuildInternal(string serverIdentity, Dictionary<string, RecipeOverrideData> recipeOverrides)
+    static void BuildInternal(
+        string serverIdentity,
+        Dictionary<string, RecipeOverrideData> recipeOverrides,
+        Dictionary<string, StationRecipeOverrideData> stationRecipeOverrides,
+        List<string> playerRecipesToAdd,
+        List<string> playerRecipesToRemove)
     {
         try
         {
             var payload = ServerSyncPayload.Build(serverIdentity);
 
-            // Merge in the recipe overrides supplied by the caller.
-            // ServerSyncPayload.Build() leaves RecipeOverrides empty.
             foreach (var (key, value) in recipeOverrides)
                 payload.RecipeOverrides[key] = value;
+
+            // [CHANGED] Populate station recipe overrides.
+            foreach (var (key, value) in stationRecipeOverrides)
+                payload.StationRecipeOverrides[key] = value;
+
+            payload.PlayerRecipesToAdd    = new List<string>(playerRecipesToAdd);
+            payload.PlayerRecipesToRemove = new List<string>(playerRecipesToRemove);
 
             var json = JsonSerializer.Serialize(payload,
                 new JsonSerializerOptions { WriteIndented = false });
 
-            // Compute short hash for Soul's cache-invalidation check.
             payload.PayloadHash = ComputeHash(json);
 
-            // Re-serialize with hash included.
             _cachedJson = JsonSerializer.Serialize(payload,
                 new JsonSerializerOptions { WriteIndented = false });
 
             HeartLogger.Info(LOG_SOURCE,
                 $"Payload cached — {_cachedJson.Length} chars, " +
                 $"hash {payload.PayloadHash}, " +
-                $"{payload.RecipeOverrides.Count} recipe override(s).");
+                $"{payload.RecipeOverrides.Count} recipe override(s), " +
+                $"{payload.StationRecipeOverrides.Count} station override(s), " +
+                $"{payload.PlayerRecipesToAdd.Count} player add(s), " +
+                $"{payload.PlayerRecipesToRemove.Count} player remove(s).");
         }
         catch (Exception ex)
         {

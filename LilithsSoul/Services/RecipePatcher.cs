@@ -154,6 +154,242 @@ public static class RecipePatcher
     }
 
     /// <summary>
+    /// Patches the client's own player entity WorkstationRecipesBuffer from
+    /// the received player recipe add/remove lists.
+    ///
+    /// Finds the local player's User entity by querying for entities with
+    /// both User and WorkstationRecipesBuffer components where IsConnected is true.
+    ///
+    /// [CHANGED] Added to fix player crafting menu not reflecting server-side
+    ///           WorkstationRecipesBuffer changes. The client UI reads from the
+    ///           live player entity buffer — Soul must patch it directly.
+    ///
+    /// [PERFORMANCE] One ECS query at connect time — no per-frame cost.
+    /// </summary>
+    public static void ApplyPlayerRecipes(List<string> toAdd, List<string> toRemove)
+    {
+        if (toAdd.Count == 0 && toRemove.Count == 0)
+        {
+            SoulLogger.Debug(LOG_SOURCE, "No player recipe changes to apply.");
+            return;
+        }
+
+        var world = Soul.ClientWorld;
+        if (world == null)
+        {
+            SoulLogger.Error(LOG_SOURCE, "Client world not ready — cannot patch player recipes.");
+            return;
+        }
+
+        var em = world.EntityManager;
+
+        // Find all User entities that have WorkstationRecipesBuffer.
+        // On the client there should only be one — the local player.
+        var query = em.CreateEntityQuery(
+            ComponentType.ReadWrite<WorkstationRecipesBuffer>(),
+            ComponentType.ReadOnly<ProjectM.Network.User>()
+        );
+
+        var entities = query.ToEntityArray(Unity.Collections.Allocator.Temp);
+
+        try
+        {
+            if (entities.Length == 0)
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    "No player User entity with WorkstationRecipesBuffer found on client.");
+                return;
+            }
+
+            int patchedCount = 0;
+
+            foreach (var userEntity in entities)
+            {
+                if (!em.HasBuffer<WorkstationRecipesBuffer>(userEntity)) continue;
+
+                var buffer = em.GetBuffer<WorkstationRecipesBuffer>(userEntity);
+
+                // Add recipes.
+                foreach (var recipeName in toAdd)
+                {
+                    if (!_nameToGuid.TryGetValue(recipeName, out PrefabGUID recipeGuid))
+                    {
+                        SoulLogger.Warning(LOG_SOURCE,
+                            $"[PlayerRecipes] Could not resolve recipe to add: '{recipeName}' — skipping.");
+                        continue;
+                    }
+
+                    bool alreadyExists = false;
+                    for (int i = 0; i < buffer.Length; i++)
+                    {
+                        if (buffer[i].RecipeGuid.Equals(recipeGuid))
+                        {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyExists)
+                    {
+                        buffer.Add(new WorkstationRecipesBuffer { RecipeGuid = recipeGuid });
+                        SoulLogger.Debug(LOG_SOURCE, $"[PlayerRecipes] Added '{recipeName}'.");
+                    }
+                }
+
+                // Remove recipes.
+                foreach (var recipeName in toRemove)
+                {
+                    if (!_nameToGuid.TryGetValue(recipeName, out PrefabGUID recipeGuid))
+                    {
+                        SoulLogger.Warning(LOG_SOURCE,
+                            $"[PlayerRecipes] Could not resolve recipe to remove: '{recipeName}' — skipping.");
+                        continue;
+                    }
+
+                    for (int i = buffer.Length - 1; i >= 0; i--)
+                    {
+                        if (buffer[i].RecipeGuid.Equals(recipeGuid))
+                        {
+                            buffer.RemoveAt(i);
+                            SoulLogger.Debug(LOG_SOURCE, $"[PlayerRecipes] Removed '{recipeName}'.");
+                            break;
+                        }
+                    }
+                }
+
+                patchedCount++;
+            }
+
+            SoulLogger.Info(LOG_SOURCE,
+                $"Player recipe patching complete — {patchedCount} entity(s) patched, " +
+                $"{toAdd.Count} add(s), {toRemove.Count} remove(s).");
+        }
+        finally
+        {
+            entities.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Patches WorkstationRecipesBuffer on client-side prefab entities for
+    /// WorkstationRecipesBuffer crafting stations.
+    ///
+    /// [CHANGED] Rewritten to use PrefabCollectionSystem._PrefabGuidToEntityMap
+    ///           instead of CreateEntityQuery. The client UI reads WorkstationRecipesBuffer
+    ///           from the prefab entity — placed station entities don't appear in
+    ///           queries on the client. This matches how RecipePatcher.Apply() works
+    ///           for recipe ingredient/output display.
+    ///
+    /// [PERFORMANCE] One prefab map lookup per station at connect time.
+    ///               No per-frame cost.
+    /// </summary>
+    public static void ApplyStationRecipes(Dictionary<string, StationRecipeOverrideData> overrides)
+    {
+        if (overrides.Count == 0)
+        {
+            SoulLogger.Debug(LOG_SOURCE, "No station recipe overrides to apply.");
+            return;
+        }
+
+        var world = Soul.ClientWorld;
+        if (world == null)
+        {
+            SoulLogger.Error(LOG_SOURCE, "Client world not ready — cannot patch station recipes.");
+            return;
+        }
+
+        var prefabSystem = world.GetExistingSystemManaged<PrefabCollectionSystem>();
+        if (prefabSystem == null)
+        {
+            SoulLogger.Error(LOG_SOURCE, "PrefabCollectionSystem not found — cannot patch station recipes.");
+            return;
+        }
+
+        var em       = world.EntityManager;
+        var prefabMap = prefabSystem._PrefabGuidToEntityMap;
+        int patched  = 0;
+        int failed   = 0;
+
+        foreach (var (stationName, data) in overrides)
+        {
+            if (!_nameToGuid.TryGetValue(stationName, out PrefabGUID stationGuid))
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"[StationRecipes] Could not resolve station '{stationName}' — skipping.");
+                failed++;
+                continue;
+            }
+
+            if (!prefabMap.TryGetValue(stationGuid, out Entity stationEntity))
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"[StationRecipes] Could not find prefab entity for '{stationName}' — skipping.");
+                failed++;
+                continue;
+            }
+
+            if (!em.HasBuffer<WorkstationRecipesBuffer>(stationEntity))
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"[StationRecipes] '{stationName}' prefab has no WorkstationRecipesBuffer — skipping.");
+                failed++;
+                continue;
+            }
+
+            var buffer = em.GetBuffer<WorkstationRecipesBuffer>(stationEntity);
+
+            // Add recipes.
+            foreach (var recipeName in data.RecipesToAdd)
+            {
+                if (!_nameToGuid.TryGetValue(recipeName, out PrefabGUID recipeGuid))
+                {
+                    SoulLogger.Warning(LOG_SOURCE,
+                        $"[{stationName}] Could not resolve recipe to add: '{recipeName}' — skipping.");
+                    continue;
+                }
+
+                bool alreadyExists = false;
+                for (int i = 0; i < buffer.Length; i++)
+                {
+                    if (buffer[i].RecipeGuid.Equals(recipeGuid)) { alreadyExists = true; break; }
+                }
+
+                if (!alreadyExists)
+                {
+                    buffer.Add(new WorkstationRecipesBuffer { RecipeGuid = recipeGuid });
+                    SoulLogger.Debug(LOG_SOURCE, $"[{stationName}] Added '{recipeName}'.");
+                }
+            }
+
+            // Remove recipes.
+            foreach (var recipeName in data.RecipesToRemove)
+            {
+                if (!_nameToGuid.TryGetValue(recipeName, out PrefabGUID recipeGuid))
+                {
+                    SoulLogger.Warning(LOG_SOURCE,
+                        $"[{stationName}] Could not resolve recipe to remove: '{recipeName}' — skipping.");
+                    continue;
+                }
+
+                for (int i = buffer.Length - 1; i >= 0; i--)
+                {
+                    if (buffer[i].RecipeGuid.Equals(recipeGuid))
+                    {
+                        buffer.RemoveAt(i);
+                        SoulLogger.Debug(LOG_SOURCE, $"[{stationName}] Removed '{recipeName}'.");
+                        break;
+                    }
+                }
+            }
+
+            patched++;
+        }
+
+        SoulLogger.Info(LOG_SOURCE,
+            $"Station recipe patching complete — {patched} station(s) patched, {failed} failed.");
+    }
+
+    /// <summary>
     /// Patches client prefab entities from the received recipe overrides.
     /// Called by SyncReceiver.ApplyPayload() after LocalizationInjector.Inject().
     /// Safe to call with an empty dict — exits immediately.
