@@ -8,22 +8,23 @@ using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
-// [CHANGED] LilithsLogger → HeartLogger throughout.
-//           Added using LilithsHeart.Prefabs for PrefabNameResolver.
-//           Added using LilithsHeart.Network for RecipeOverrideData.
+// ============================================================
+//  RecipeSystem — LilithsCookbook
 //
-// [CHANGED] ApplyChanges() now builds a RecipeOverrideData dict for
-//           every recipe where ChangesEnabled = true and registers it
-//           with Heart.RegisterRecipeOverrides() so connecting Soul
-//           clients receive the overrides and can patch their local
-//           prefab ECS to display the correct ingredient/output data.
+//  Applies recipe changes from recipes.json to server-side ECS
+//  prefab entities and RecipeHashLookupMap, then registers
+//  overrides with Heart for Soul client sync.
 //
-// [CHANGED] ApplyRecipeData() now also writes scalar fields directly
-//           into RecipeHashLookupMap. Investigation confirmed that the
-//           map is populated from baked scene data at startup and is NOT
-//           updated by RegisterRecipes() from live entity components.
-//           The crafting system reads CraftDuration from this map, not
-//           from the prefab entity, so both must be kept in sync.
+//  Why RecipeHashLookupMap must be written directly:
+//  ──────────────────────────────────────────────────
+//  The map is populated from baked scene data at startup and is
+//  NOT updated by RegisterRecipes() from live entity components.
+//  The crafting system reads CraftDuration and other scalar fields
+//  from the map — not the entity — so both must be kept in sync.
+//
+//  [PERFORMANCE] ApplyChanges() runs once at startup. All ECS
+//                writes and map updates are one-time costs.
+// ============================================================
 public static class RecipeSystem
 {
     private const string LOG_SOURCE = "LilithsCookbook.RecipeSystem";
@@ -66,7 +67,6 @@ public static class RecipeSystem
                 entry.IgnoreServerSettings.HasValue ||
                 entry.HudSortingOrder.HasValue)
             {
-                // [CHANGED] Pass guid so ApplyRecipeData can also update RecipeHashLookupMap.
                 ApplyRecipeData(recipeEntity, entry, guid);
             }
 
@@ -164,11 +164,10 @@ public static class RecipeSystem
     /// Applies scalar RecipeData fields to both the prefab entity component
     /// and directly into RecipeHashLookupMap.
     ///
-    /// [CHANGED] RecipeHashLookupMap is populated from baked scene data at
-    ///           startup and is not updated by RegisterRecipes() from live
-    ///           entity components. The crafting system reads CraftDuration
-    ///           and other scalar fields from the map, not the entity, so
-    ///           both must be written to ensure changes take effect.
+    /// RecipeHashLookupMap is populated from baked scene data at startup and
+    /// is not updated by RegisterRecipes() from live entity components. The
+    /// crafting system reads CraftDuration and other scalar fields from the
+    /// map, not the entity — so both must be written to ensure changes apply.
     ///
     /// [PERFORMANCE] One map read + one map write per changed recipe at
     ///               startup only — no per-frame cost.

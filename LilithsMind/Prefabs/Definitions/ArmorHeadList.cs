@@ -16,7 +16,7 @@ public static class ArmorHeadList
         Name    = "AshfolkCrown",
         GuidHash = -1988816037,
         Prefab  = "Item_Headgear_AshfolkCrown",
-        NameKey = "92e82ddb-9b3e-4d16-ad2a-979ce9d133fc,
+        NameKey = "92e82ddb-9b3e-4d16-ad2a-979ce9d133fc",
         DescKey = null,
     };
 

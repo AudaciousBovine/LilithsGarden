@@ -9,6 +9,28 @@ using LilithsHeart.Modules;
 
 namespace LilithsHeart.Foundation;
 
+// ============================================================
+//  Heart — LilithsHeart
+//
+//  Central access point for server ECS systems and the module
+//  registration/sync pipeline.
+//
+//  Lifecycle:
+//  ──────────
+//  1. OnInitialize() fires via WarEventRegistrySystem patch.
+//  2. PrefabNameResolver and LocalizationConfig are initialized.
+//  3. A baseline SyncPayloadCache is built (empty overrides).
+//  4. OnInitialized event fires — registered modules apply their
+//     changes and call Register*() to queue overrides.
+//  5. Payload is rebuilt with all accumulated overrides.
+//  6. OnWorldReady event fires for late subscribers.
+//
+//  [PERFORMANCE] System accessors (PrefabCollectionSystem,
+//                GameDataSystem) are fetched per-call via Unity's
+//                GetExistingSystemManaged — cached internally by Unity.
+//                No static system references that could go stale.
+// ============================================================
+
 public static class Heart
 {
     private const string LOG_SOURCE = "LilithsHeart";
@@ -42,15 +64,12 @@ public static class Heart
 
     static string _serverIdentity = string.Empty;
 
-    static readonly Dictionary<string, RecipeOverrideData> _pendingRecipeOverrides = new();
+    static readonly Dictionary<string, RecipeOverrideData>        _pendingRecipeOverrides        = new();
     static readonly Dictionary<string, StationRecipeOverrideData> _pendingStationRecipeOverrides = new();
+    static readonly List<string>                                   _pendingPlayerRecipesToAdd     = new();
+    static readonly List<string>                                   _pendingPlayerRecipesToRemove  = new();
 
-    // [CHANGED] Player recipe changes registered by StationSystem after
-    //           patching live User entities. Soul uses these to patch the
-    //           client's own player entity WorkstationRecipesBuffer so the
-    //           player crafting menu reflects server-side changes.
-    static readonly List<string> _pendingPlayerRecipesToAdd    = new();
-    static readonly List<string> _pendingPlayerRecipesToRemove = new();
+    // ── Lifecycle ─────────────────────────────────────────────
 
     internal static void OnInitialize()
     {
@@ -63,48 +82,87 @@ public static class Heart
 
         _serverIdentity = ResolveServerIdentity();
 
-        SyncPayloadCache.Build(_serverIdentity);
+        // Build a baseline payload before modules register overrides.
+        SyncPayloadCache.Rebuild(_serverIdentity,
+            _pendingRecipeOverrides,
+            _pendingStationRecipeOverrides,
+            _pendingPlayerRecipesToAdd,
+            _pendingPlayerRecipesToRemove);
 
         _initialized = true;
 
         HeartLogger.Info(LOG_SOURCE, "Heart initialized.");
 
+        // Fire OnInitialized — modules apply their changes and call Register*().
         OnInitialized?.Invoke();
 
-        // [CHANGED] Rebuild after all modules have registered their overrides —
-        //           includes both recipe overrides and player recipe changes.
-        bool needsRebuild = _pendingRecipeOverrides.Count > 0 ||
-                            _pendingStationRecipeOverrides.Count > 0 ||
-                            _pendingPlayerRecipesToAdd.Count > 0 ||
-                            _pendingPlayerRecipesToRemove.Count > 0;
+        // Rebuild payload after all modules have registered their overrides.
+        bool needsRebuild = _pendingRecipeOverrides.Count        > 0 ||
+                            _pendingStationRecipeOverrides.Count  > 0 ||
+                            _pendingPlayerRecipesToAdd.Count      > 0 ||
+                            _pendingPlayerRecipesToRemove.Count   > 0;
 
         if (needsRebuild)
         {
             HeartLogger.Info(LOG_SOURCE,
-                $"Rebuilding sync payload with {_pendingRecipeOverrides.Count} recipe override(s), " +
+                $"Rebuilding sync payload with " +
+                $"{_pendingRecipeOverrides.Count} recipe override(s), " +
                 $"{_pendingStationRecipeOverrides.Count} station override(s), " +
-                $"{_pendingPlayerRecipesToAdd.Count} player recipe addition(s), " +
-                $"{_pendingPlayerRecipesToRemove.Count} player recipe removal(s).");
-            SyncPayloadCache.Rebuild(_serverIdentity, _pendingRecipeOverrides,
+                $"{_pendingPlayerRecipesToAdd.Count} player add(s), " +
+                $"{_pendingPlayerRecipesToRemove.Count} player remove(s).");
+
+            SyncPayloadCache.Rebuild(_serverIdentity,
+                _pendingRecipeOverrides,
                 _pendingStationRecipeOverrides,
-                _pendingPlayerRecipesToAdd, _pendingPlayerRecipesToRemove);
+                _pendingPlayerRecipesToAdd,
+                _pendingPlayerRecipesToRemove);
         }
 
         HeartRegistry.LogSummary();
-
         HeartEventBus.Publish(new OnWorldReady());
     }
 
+    internal static void OnLocalizationReloaded()
+        => SyncPayloadCache.Rebuild(_serverIdentity,
+            _pendingRecipeOverrides,
+            _pendingStationRecipeOverrides,
+            _pendingPlayerRecipesToAdd,
+            _pendingPlayerRecipesToRemove);
+
+    internal static void OnDestroy()
+    {
+        _initialized    = false;
+        _server         = null;
+        _serverIdentity = string.Empty;
+        _pendingRecipeOverrides.Clear();
+        _pendingStationRecipeOverrides.Clear();
+        _pendingPlayerRecipesToAdd.Clear();
+        _pendingPlayerRecipesToRemove.Clear();
+        OnInitialized = null;
+        HeartLogger.Info(LOG_SOURCE, "Heart destroyed.");
+    }
+
+    // ── Module registration API ───────────────────────────────
+
     /// <summary>
-    /// Called by modules after applying recipe ECS changes.
-    /// Registers overrides for inclusion in ServerSyncPayload.
-    /// </summary>
-    /// <summary>
-    /// Called by StationSystem after re-patching WorkstationRecipesBuffer station
-    /// prefab entities in Pass 2. Registers station recipe changes for Soul so
-    /// the client can patch placed workstation entities to match.
+    /// Called by RecipeSystem after applying recipe ECS changes.
+    /// Queues overrides for inclusion in the next ServerSyncPayload build.
     ///
-    /// [CHANGED] Added to support client-side WorkstationRecipesBuffer station patching.
+    /// [PERFORMANCE] Called once at startup per module — O(n) over overrides.
+    /// </summary>
+    public static void RegisterRecipeOverrides(Dictionary<string, RecipeOverrideData> overrides)
+    {
+        foreach (var (key, value) in overrides)
+            _pendingRecipeOverrides[key] = value;
+
+        HeartLogger.Debug(LOG_SOURCE,
+            $"RegisterRecipeOverrides: +{overrides.Count} entries, total={_pendingRecipeOverrides.Count}");
+    }
+
+    /// <summary>
+    /// Called by StationSystem after patching WorkstationRecipesBuffer station
+    /// entities. Queues station overrides so Soul can patch placed workstation
+    /// entities client-side to match server-side display.
     ///
     /// [PERFORMANCE] Called once at startup per WorkstationRecipesBuffer station.
     /// </summary>
@@ -128,23 +186,12 @@ public static class Heart
             $"RegisterStationRecipeChanges: '{stationName}' +{toAdd.Count} add, +{toRemove.Count} remove.");
     }
 
-    public static void RegisterRecipeOverrides(Dictionary<string, RecipeOverrideData> overrides)
-    {
-        foreach (var (key, value) in overrides)
-            _pendingRecipeOverrides[key] = value;
-
-        HeartLogger.Debug(LOG_SOURCE,
-            $"RegisterRecipeOverrides: +{overrides.Count} entries, total={_pendingRecipeOverrides.Count}");
-    }
-
     /// <summary>
-    /// Called by StationSystem after patching the player prefab and live User entities.
-    /// Registers player recipe additions and removals for inclusion in ServerSyncPayload
-    /// so Soul can patch the client's own player entity WorkstationRecipesBuffer.
+    /// Called by StationSystem after patching live User entities.
+    /// Queues player recipe changes so Soul can patch the client player
+    /// entity WorkstationRecipesBuffer to match the server.
     ///
-    /// [CHANGED] Added to support client-side player crafting menu accuracy.
-    ///
-    /// [PERFORMANCE] Called once at startup per WorkstationRecipesBuffer target.
+    /// [PERFORMANCE] Called once at startup per player crafting entry.
     ///               Lists are accumulated — later calls append, not replace.
     /// </summary>
     public static void RegisterPlayerRecipeChanges(List<string> toAdd, List<string> toRemove)
@@ -161,25 +208,7 @@ public static class Heart
             $"RegisterPlayerRecipeChanges: +{toAdd.Count} add, +{toRemove.Count} remove.");
     }
 
-    internal static void OnLocalizationReloaded()
-    {
-        SyncPayloadCache.Rebuild(_serverIdentity, _pendingRecipeOverrides,
-            _pendingStationRecipeOverrides,
-            _pendingPlayerRecipesToAdd, _pendingPlayerRecipesToRemove);
-    }
-
-    internal static void OnDestroy()
-    {
-        _initialized = false;
-        _server      = null;
-        _serverIdentity = string.Empty;
-        _pendingRecipeOverrides.Clear();
-        _pendingStationRecipeOverrides.Clear();
-        _pendingPlayerRecipesToAdd.Clear();
-        _pendingPlayerRecipesToRemove.Clear();
-        OnInitialized = null;
-        HeartLogger.Info(LOG_SOURCE, "Heart destroyed.");
-    }
+    // ── Internal helpers ──────────────────────────────────────
 
     static string ResolveServerIdentity()
     {

@@ -47,12 +47,17 @@ public static class StationSystem
             return;
         }
 
-        int changed = 0;
+        int enabled = config.Stations.Count(kvp => kvp.Value.ChangesEnabled);
+        if (enabled == 0)
+        {
+            HeartLogger.Info(LOG_SOURCE, "No stations had ChangesEnabled = true, skipping.");
+            return;
+        }
 
-        // ── Pass 1: Patch prefab entities ─────────────────────────────────────
-        // All add/remove changes applied to prefab entities first.
-        // Registration runs after this pass — live entity patching
-        // must wait until after RegisterGameData() resets live buffers.
+        // ── Pass 1: Patch all prefab entities ─────────────────────────────────
+        // Patches RefinementstationRecipesBuffer and WorkstationRecipesBuffer prefab
+        // entities. RegisterGameData() will reset WorkstationRecipesBuffer live
+        // entities after this — prefab patches survive.
 
         foreach (var (stationName, entry) in config.Stations)
         {
@@ -97,27 +102,23 @@ public static class StationSystem
                     RemoveWorkstationRecipes(stationEntity, entry.RemoveRecipes, stationName);
             }
 
-            changed++;
-            HeartLogger.Info(LOG_SOURCE, $"Applied changes to station: '{stationName}'");
-        }
-
-        if (changed == 0)
-        {
-            HeartLogger.Info(LOG_SOURCE, "No stations had ChangesEnabled = true, skipping registration.");
-            return;
+            HeartLogger.Info(LOG_SOURCE, $"[Pass 1] Patched prefab: '{stationName}'");
         }
 
         // ── Registration ──────────────────────────────────────────────────────
         // RegisterGameData() resets WorkstationRecipesBuffer on all live entities.
-        // All live entity patching must happen after this call.
+        // Live entity patching must happen after this call.
         Heart.GameDataSystem.RegisterRecipes();
         Heart.PrefabCollectionSystem.RegisterGameData();
-        HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
 
-        // ── Pass 2: Live entity patching + prefab re-patch ────────────────────
-        // WorkstationRecipesBuffer prefab entities are reset by RegisterGameData()
-        // so we re-patch them here. Live User entities and placed station entities
-        // are also patched here so connected players see changes immediately.
+        // ── Pass 2: Patch all live entities ───────────────────────────────────
+        // Patches live User entities (player crafting menu) and placed station
+        // entities. Refinement stations have no live entity patching needed.
+        //
+        // [PERFORMANCE] GetAllEntities scans ~560K entities once per
+        //               WorkstationRecipesBuffer station — no per-frame cost.
+
+        int changed = 0;
 
         foreach (var (stationName, entry) in config.Stations)
         {
@@ -130,11 +131,11 @@ public static class StationSystem
             bool hasWorkstation = stationEntity.Has<WorkstationRecipesBuffer>();
             bool isPlayerEntity = stationEntity.Has<ProjectM.Network.User>();
 
+            // Refinement stations need no live entity patching.
             if (!hasWorkstation) continue;
 
             if (isPlayerEntity)
             {
-                // Patch live User entities so connected players see changes immediately.
                 PatchLiveUserEntities(entry.AddRecipes, entry.RemoveRecipes, stationName);
                 Heart.RegisterPlayerRecipeChanges(entry.AddRecipes, entry.RemoveRecipes);
                 HeartLogger.Info(LOG_SOURCE,
@@ -143,23 +144,14 @@ public static class StationSystem
             }
             else
             {
-                // Re-patch prefab entity — RegisterGameData() reset it.
-                if (entry.AddRecipes.Count > 0)
-                    AddWorkstationRecipes(stationEntity, entry.AddRecipes, stationName);
-                if (entry.RemoveRecipes.Count > 0)
-                    RemoveWorkstationRecipes(stationEntity, entry.RemoveRecipes, stationName);
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{stationName}] Re-patched prefab entity after registration.");
-
-                // Patch existing placed station entities in the world.
-                // CreateEntityQuery cannot find placed workstation entities —
-                // GetAllEntities is required to locate them by GUID.
                 PatchLiveStationEntities(guid, entry.AddRecipes, entry.RemoveRecipes, stationName);
-
-                // Register with Heart so Soul can patch the client-side display.
                 Heart.RegisterStationRecipeChanges(stationName, entry.AddRecipes, entry.RemoveRecipes);
             }
+
+            changed++;
         }
+
+        HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
     }
 
     // ── Live User entity patching ─────────────────────────────────────────────

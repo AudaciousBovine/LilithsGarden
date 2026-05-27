@@ -6,9 +6,17 @@ using LilithsHeart.Foundation;
 // ============================================================
 //  SyncPayloadCache — LilithsHeart
 //
-//  [CHANGED] Rebuild() now accepts player recipe add/remove lists
-//            in addition to recipe overrides, so localization
-//            reloads preserve all registered module changes.
+//  Builds and caches the serialized ServerSyncPayload JSON that
+//  is sent to connecting Soul clients via chunked chat messages.
+//
+//  Heart calls Rebuild() twice:
+//    1. Before OnInitialized fires — baseline empty payload.
+//    2. After all modules have registered overrides — final payload.
+//
+//  SyncSender reads CachedJson on demand when a client connects.
+//
+//  [PERFORMANCE] Serialization runs at most twice at startup.
+//                No per-frame or per-connect serialization cost.
 // ============================================================
 
 namespace LilithsHeart.Network;
@@ -17,29 +25,18 @@ public static class SyncPayloadCache
 {
     private const string LOG_SOURCE = "LilithsHeart.SyncPayloadCache";
 
-    static volatile string? _cachedJson;
+    static readonly JsonSerializerOptions _writeOptions = new() { WriteIndented = false };
 
+    static volatile string? _cachedJson;
     public static string? CachedJson => _cachedJson;
 
-    public static void Build(string serverIdentity)
-        => BuildInternal(serverIdentity,
-            new Dictionary<string, RecipeOverrideData>(),
-            new Dictionary<string, StationRecipeOverrideData>(),
-            new List<string>(),
-            new List<string>());
-
+    /// <summary>
+    /// Builds and caches the sync payload JSON.
+    /// Called by Heart.OnInitialize() before and after module registration.
+    ///
+    /// [PERFORMANCE] Serializes once per call — runs at most twice at startup.
+    /// </summary>
     public static void Rebuild(
-        string serverIdentity,
-        Dictionary<string, RecipeOverrideData> recipeOverrides,
-        Dictionary<string, StationRecipeOverrideData> stationRecipeOverrides,
-        List<string> playerRecipesToAdd,
-        List<string> playerRecipesToRemove)
-        => BuildInternal(serverIdentity, recipeOverrides, stationRecipeOverrides,
-            playerRecipesToAdd, playerRecipesToRemove);
-
-    // ── Internal ─────────────────────────────────────────────
-
-    static void BuildInternal(
         string serverIdentity,
         Dictionary<string, RecipeOverrideData> recipeOverrides,
         Dictionary<string, StationRecipeOverrideData> stationRecipeOverrides,
@@ -53,20 +50,18 @@ public static class SyncPayloadCache
             foreach (var (key, value) in recipeOverrides)
                 payload.RecipeOverrides[key] = value;
 
-            // [CHANGED] Populate station recipe overrides.
             foreach (var (key, value) in stationRecipeOverrides)
                 payload.StationRecipeOverrides[key] = value;
 
             payload.PlayerRecipesToAdd    = new List<string>(playerRecipesToAdd);
             payload.PlayerRecipesToRemove = new List<string>(playerRecipesToRemove);
 
-            var json = JsonSerializer.Serialize(payload,
-                new JsonSerializerOptions { WriteIndented = false });
+            // Hash is computed on the payload without the hash field itself
+            // to avoid a circular dependency.
+            var jsonForHash = JsonSerializer.Serialize(payload, _writeOptions);
+            payload.PayloadHash = ComputeHash(jsonForHash);
 
-            payload.PayloadHash = ComputeHash(json);
-
-            _cachedJson = JsonSerializer.Serialize(payload,
-                new JsonSerializerOptions { WriteIndented = false });
+            _cachedJson = JsonSerializer.Serialize(payload, _writeOptions);
 
             HeartLogger.Info(LOG_SOURCE,
                 $"Payload cached — {_cachedJson.Length} chars, " +
