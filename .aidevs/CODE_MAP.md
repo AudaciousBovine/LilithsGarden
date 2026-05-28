@@ -142,7 +142,7 @@
 | File | Class | Purpose |
 |------|-------|---------|
 | `RecipeSystem.cs` | `RecipeSystem` | Applies recipe changes from config to server ECS prefabs + `RecipeHashLookupMap`. Builds `LilithRecipeData` overrides from applied state for Soul sync. Handles: RecipeData scalars, requirements, outputs, repair costs, unit outputs, recipe links. |
-| `StationSystem.cs` | `StationSystem` | Two-pass approach: (1) patch prefab entities, (2) after `RegisterGameData()` resets live entities, re-patch live + User entities. Handles both `RefinementstationRecipesBuffer` and `WorkstationRecipesBuffer`. |
+| `StationSystem.cs` | `StationSystem` | Two-pass approach: (1) patch prefab entities, (2) after `RegisterGameData()` resets live WorkstationRecipesBuffer entities, patch live User + placed station entities via `CreateEntityQuery(Prefab + TileModel)`. Handles both `RefinementstationRecipesBuffer` and `WorkstationRecipesBuffer`. [PERFORMANCE] Targeted queries only — no full-entity scan. |
 | `CookbookLoader.cs` | `CookbookLoader` | Reads and merges all `*.json` files from Recipes/ and Stations/ directories. Later files win on key collision. |
 | `CookbookBuilder.cs` | `CookbookBuilder` | Writes example config files on first run. If `GenerateAllRecipes` enabled, dumps all vanilla recipes from `RecipeHashLookupMap` to `all-recipes.json`, then resets the flag. Renamed from `CookbookGenerator` to match Builder naming convention. |
 
