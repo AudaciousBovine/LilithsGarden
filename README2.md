@@ -1,8 +1,6 @@
 
 ## File Structure
 
-<details>
-<summary><strong>Naming Conventions</strong></summary>
 ```
 Naming Conventions:
 [*Patch] - Harmony patch that injects before or after game code
@@ -25,9 +23,6 @@ Naming Conventions:
 [*System] - Recurring logic systems
 [*Loader] - Reads and merges data for use
 ```
-</details>
-<details>
-<summary><strong>LilithsMind</strong></summary>
 ```
 [LilithsMind]
     LilithsMind.csproj
@@ -41,9 +36,6 @@ Naming Conventions:
         [Definitions]
             *Index.cs
 ```
-</details>
-<details>
-<summary><strong>LilithsHeart</strong></summary>
 ```
 [LilithsHeart]
     LilithsHeart.csproj
@@ -72,9 +64,6 @@ Naming Conventions:
         LocalizationService.cs
         PrefabNameResolver.cs
 ```
-</details>
-<details>
-<summary><strong>LilithsSoul</strong></summary>
 ```
 [LilithsSoul]
     LilithsSoul.csproj
@@ -96,9 +85,6 @@ Naming Conventions:
             RecipePatcher.cs
             ServerRegistry.cs
 ```
-</details>
-<details>
-<summary><strong>LilithsCookbook</strong></summary>
 ```
 [LilithsCookbook]
     LilithsCookbook.csproj
@@ -114,4 +100,3 @@ Naming Conventions:
         RecipeSystem.cs
         StationSystem.cs
 ```
-</details>
