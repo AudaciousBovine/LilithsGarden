@@ -8,23 +8,20 @@ using LilithsHeart.Network;
 
 // ============================================================
 //  ClientConnectPatch — LilithsHeart
+//  LilithsHeart/Patches/ClientConnectPatch.cs
 //
-//  Detects when a client successfully joins and sends them the
-//  cached ServerSyncPayload via SyncSender.
+//  Detects when a client successfully joins and enqueues the
+//  tiered sync payload into SyncQueue for rate-limited delivery.
 //
-//  Hook target: ServerBootstrapSystem.OnUserConnected
-//  ──────────────────────────────────────────────────
-//  Fires after authentication is complete and the User entity
-//  exists. We read the User and Character entities from the
-//  approved user lookup — both are needed to construct the
-//  ChatMessageServerEvent that carries our payload chunks.
-//
-//  [CHANGED] No longer uses Unity Netcode clientId.
-//  SyncSender now uses ChatMessageServerEvent (system messages)
-//  which requires User + Character entity references, not a
-//  Netcode transport ID.
+//  [CHANGED] No longer calls SyncSender.SendSyncToClient() which
+//            sent all chunks immediately in one frame.
+//            Now calls SyncSender.EnqueueSyncTiers() which
+//            enqueues all tier blobs into SyncQueue.
+//            SchedulerPatch drains the queue at ChunksPerFrame
+//            rate each frame — no connect-frame spike.
 //
 //  [PERFORMANCE] Runs once per client connect — negligible cost.
+//                Chunk entity creation is deferred to SchedulerPatch.
 // ============================================================
 
 namespace LilithsHeart.Patches;
@@ -47,7 +44,6 @@ internal static class ClientConnectPatch
                 return;
             }
 
-            // Resolve connection → approved user index.
             if (!__instance._NetEndPointToApprovedUserIndex.TryGetValue(
                     netConnectionId, out int userIndex))
             {
@@ -55,12 +51,6 @@ internal static class ClientConnectPatch
                     $"Could not resolve connection {netConnectionId} to user index.");
                 return;
             }
-
-            // [CHANGED] userIndex passed to SendSyncToClient.
-            //           SendEventToUser.UserIndex requires the int slot index from
-            //           _ApprovedUsersLookup, which we already have here from the
-            //           _NetEndPointToApprovedUserIndex lookup. Thread it through
-            //           rather than re-resolving it inside SyncSender.
 
             var serverClient  = __instance._ApprovedUsersLookup[userIndex];
             Entity userEntity = serverClient.UserEntity;
@@ -77,9 +67,12 @@ internal static class ClientConnectPatch
             }
 
             HeartLogger.Info(LOG_SOURCE,
-                $"Client '{user.CharacterName}' connected — sending sync payload.");
+                $"Client '{user.CharacterName}' connected — enqueuing tiered sync payload.");
 
-            SyncSender.SendSyncToClient(userEntity, characterEntity, userIndex); // [CHANGED] pass userIndex
+            // [CHANGED] EnqueueSyncTiers replaces SendSyncToClient.
+            //           All tier blobs are enqueued into SyncQueue here.
+            //           SchedulerPatch drains at ChunksPerFrame per frame.
+            SyncSender.EnqueueSyncTiers(userEntity, characterEntity, userIndex);
         }
         catch (Exception ex)
         {

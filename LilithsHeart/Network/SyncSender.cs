@@ -1,41 +1,44 @@
 using Il2CppInterop.Runtime;
+using ProjectM;
 using ProjectM.Network;
 using Unity.Collections;
 using Unity.Entities;
 using LilithsHeart.Foundation;
+using LilithsMind.Network;
 
 // ============================================================
 //  SyncSender — LilithsHeart
+//  LilithsHeart/Network/SyncSender.cs
 //
-//  Sends the ServerSyncPayload to connecting Soul clients using
-//  V Rising's existing chat message infrastructure.
+//  Enqueues tiered sync payload chunks into SyncQueue on client
+//  connect. SchedulerPatch drains the queue at ChunksPerFrame
+//  rate each server frame.
 //
-//  Why chat messages instead of CustomMessagingManager?
-//  ─────────────────────────────────────────────────────
-//  Unity.Netcode (FastBufferWriter, CustomMessagingManager etc.)
-//  is not exposed by VampireReferenceAssemblies and the DLLs do
-//  not exist on disk in an IL2CPP build. The established pattern
-//  across all shipped V Rising client mods (Eclipse, ZUI, XPShared)
-//  is to use ChatMessageServerEvent with ServerChatMessageType.System
-//  for server→client data transport. Soul intercepts these on the
-//  client side before they reach the chat UI.
+//  [CHANGED] No longer sends chunks immediately on connect.
+//            Chunks are enqueued into SyncQueue so SchedulerPatch
+//            can drain them at a controlled rate across frames.
+//            This prevents large simultaneous-connect spikes from
+//            creating thousands of entities in one frame.
 //
-//  Chunking:
-//  ─────────
-//  ChatMessageServerEvent.MessageText is FixedString512Bytes (~510
-//  usable chars). We split the JSON payload across multiple messages,
-//  each prefixed [[LG:N]] where N is the chunk index, and a final
-//  [[LG:end]] sentinel. Soul reassembles in order.
+//  Protocol per tier:
+//  ───────────────────
+//  [[LG:begin:T:N:CKSUM]]   — begin sentinel (tier, chunk count, checksum)
+//  [[LG:T:NNNN]]<data>      — chunk (tier, zero-padded index, base64+gzip data)
+//  [[LG:end:T:CKSUM]]       — end sentinel (tier, checksum)
 //
-//  Message format per chunk:
-//      [[LG:0]]<chunk content>
-//      [[LG:1]]<chunk content>
-//      [[LG:end]]
+//  Soul accumulates chunks per tier and decompresses on end sentinel.
+//  Each tier is independent — Soul applies Critical before High arrives.
 //
-//  [PERFORMANCE] Chunking runs once per client connect on the server
-//                main thread. A typical localization payload will be
-//                a few KB of JSON — roughly 10-20 messages.
-//                Acceptable cost for a one-time connect event.
+//  Transport:
+//  ──────────
+//  ChatMessageServerEvent with ServerChatMessageType.System.
+//  Soul intercepts before messages reach the chat UI.
+//  SendEventToUser routes each entity to the correct client.
+//
+//  [PERFORMANCE] EnqueueSyncTiers() runs once per connect — O(n)
+//                over tier blobs to build message strings and enqueue.
+//                Actual entity creation is deferred to SchedulerPatch
+//                at ChunksPerFrame per frame — no connect-frame spike.
 // ============================================================
 
 namespace LilithsHeart.Network;
@@ -44,23 +47,18 @@ public static class SyncSender
 {
     private const string LOG_SOURCE = "LilithsHeart.SyncSender";
 
-    public const string CHUNK_PREFIX = "[[LG:";
-    public const string CHUNK_END    = "[[LG:end]]";
+    private const string BEGIN_PREFIX = "[[LG:begin:";
+    private const string CHUNK_PREFIX = "[[LG:";
+    private const string END_PREFIX   = "[[LG:end:";
 
-    private const int MAX_CHUNK_CONTENT = 450;
-
-    // [CHANGED] Added SendEventToUser to the archetype.
-    //           V Rising's network event system requires this component
-    //           to route the event to the correct client. Without it,
-    //           the engine throws "Incorrect usage of SendEvent detected."
-    // [PERFORMANCE] Static readonly — allocated once, reused per send.
+    // [PERFORMANCE] Static readonly — allocated once, reused for every entity create.
     static readonly ComponentType[] _networkEventComponents =
     [
         ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>()),
         ComponentType.ReadOnly(Il2CppType.Of<NetworkEventType>()),
         ComponentType.ReadOnly(Il2CppType.Of<SendNetworkEventTag>()),
         ComponentType.ReadOnly(Il2CppType.Of<ChatMessageServerEvent>()),
-        ComponentType.ReadOnly(Il2CppType.Of<SendEventToUser>()),   // [ADDED] required routing component
+        ComponentType.ReadOnly(Il2CppType.Of<SendEventToUser>()),
     ];
 
     static readonly NetworkEventType _networkEventType = new()
@@ -73,57 +71,80 @@ public static class SyncSender
     // ── Public API ───────────────────────────────────────────
 
     /// <summary>
-    /// Sends the cached sync payload to a connecting client.
+    /// Enqueues all tier blobs for a connecting client into SyncQueue.
+    /// Tiers are enqueued in order (Critical first) so they arrive
+    /// and are applied in priority order.
     /// Called from ClientConnectPatch.
+    ///
+    /// [PERFORMANCE] Builds message strings and enqueues — no entity creation.
+    ///               Entity creation is deferred to SchedulerPatch.Drain().
     /// </summary>
-    // [CHANGED] Added userIndex (int) parameter.
-    //           SendEventToUser.UserIndex is typed int — the approved user slot index
-    //           from ServerBootstrapSystem._ApprovedUsersLookup, not a NetworkId struct.
-    //           The caller (ClientConnectPatch) already has this value from the
-    //           _NetEndPointToApprovedUserIndex lookup so we thread it through
-    //           rather than re-resolving it here.
-    public static void SendSyncToClient(Entity userEntity, Entity characterEntity, int userIndex)
+    public static void EnqueueSyncTiers(Entity userEntity, Entity characterEntity, int userIndex)
     {
-        var json = SyncPayloadCache.CachedJson;
+        var blobs = SyncPayloadCache.GetAllTierBlobs().ToList();
 
-        if (json == null)
+        if (blobs.Count == 0)
         {
             HeartLogger.Warning(LOG_SOURCE,
-                "Sync payload cache is empty — cannot send. Is Heart fully initialized?");
+                "No tier blobs cached — cannot send. Is Heart fully initialized?");
             return;
         }
 
-        try
+        int totalChunks = 0;
+
+        foreach (var blob in blobs.OrderBy(b => (int)b.Tier))
         {
-            var chunks    = Chunkify(json);
-            var em        = Heart.EntityManager;
-            // Read NetworkId once — reused for every chunk's ChatMessageServerEvent.FromUser.
-            // userIndex is passed separately for SendEventToUser routing.
-            var userNetId = userEntity.Read<NetworkId>();
-
-            for (int i = 0; i < chunks.Count; i++)
-            {
-                SendSystemMessage(em, userEntity, characterEntity, userNetId, userIndex,
-                    $"{CHUNK_PREFIX}{i}]]{chunks[i]}");
-            }
-
-            // End sentinel — tells Soul to reassemble and process.
-            SendSystemMessage(em, userEntity, characterEntity, userNetId, userIndex, CHUNK_END);
-
-            HeartLogger.Info(LOG_SOURCE,
-                $"Sync payload sent in {chunks.Count} chunk(s) + end sentinel.");
+            var messages = BuildTierMessages(blob);
+            SyncQueue.Enqueue(userEntity, characterEntity, userIndex, messages);
+            totalChunks += blob.ChunkCount + 2; // +2 for begin + end sentinels
         }
-        catch (Exception ex)
-        {
-            HeartLogger.Error(LOG_SOURCE, $"SendSyncToClient failed: {ex.Message}");
-        }
+
+        HeartLogger.Info(LOG_SOURCE,
+            $"Enqueued {totalChunks} message(s) across {blobs.Count} tier(s) " +
+            $"for userIndex {userIndex}.");
+    }
+
+    /// <summary>
+    /// Sends a single queued chunk entity immediately.
+    /// Called by SchedulerPatch via SyncQueue.Drain().
+    /// Must run on the server main thread (EntityManager not thread-safe).
+    /// </summary>
+    public static void SendQueuedChunk(
+        Entity userEntity,
+        Entity characterEntity,
+        int    userIndex,
+        string message)
+    {
+        var em        = Heart.EntityManager;
+        var userNetId = userEntity.Read<NetworkId>();
+        SendSystemMessage(em, userEntity, characterEntity, userNetId, userIndex, message);
     }
 
     // ── Internal ─────────────────────────────────────────────
 
-    // [CHANGED] Added userIndex (int) parameter to match SendEventToUser.UserIndex type.
-    //           Previous version passed userNetId (NetworkId) to UserIndex which is
-    //           typed int — that was the CS0029 implicit conversion error.
+    /// <summary>
+    /// Builds the full sequence of messages for a tier blob:
+    ///   [[LG:begin:T:N:CKSUM]]
+    ///   [[LG:T:0000]]<chunk>
+    ///   [[LG:T:0001]]<chunk>
+    ///   ...
+    ///   [[LG:end:T:CKSUM]]
+    /// </summary>
+    static IEnumerable<string> BuildTierMessages(TierBlob blob)
+    {
+        int t = (int)blob.Tier;
+
+        // Begin sentinel.
+        yield return $"{BEGIN_PREFIX}{t}:{blob.ChunkCount}:{blob.Checksum}]]";
+
+        // Chunks with zero-padded index.
+        for (int i = 0; i < blob.Chunks.Length; i++)
+            yield return $"{CHUNK_PREFIX}{t}:{i:D4}]]{blob.Chunks[i]}";
+
+        // End sentinel.
+        yield return $"{END_PREFIX}{t}:{blob.Checksum}]]";
+    }
+
     static void SendSystemMessage(
         EntityManager em,
         Entity userEntity,
@@ -132,7 +153,7 @@ public static class SyncSender
         int userIndex,
         string text)
     {
-        // Defensive truncation — should never trigger if MAX_CHUNK_CONTENT is correct.
+        // Defensive truncation — chunks are pre-sized but sentinels could be long.
         if (text.Length > 509) text = text[..509];
 
         ChatMessageServerEvent chatEvent = new()
@@ -148,26 +169,6 @@ public static class SyncSender
         entity.Write(new FromCharacter { Character = characterEntity, User = userEntity });
         entity.Write(_networkEventType);
         entity.Write(chatEvent);
-
-        // [CHANGED] UserIndex is int — the approved user slot index from
-        //           _ApprovedUsersLookup, not a NetworkId. This is what
-        //           V Rising's network event system uses to route the
-        //           event to the correct client connection.
         entity.Write(new SendEventToUser { UserIndex = userIndex });
-    }
-
-    static List<string> Chunkify(string input)
-    {
-        var chunks = new List<string>();
-        int pos    = 0;
-
-        while (pos < input.Length)
-        {
-            int len = Math.Min(MAX_CHUNK_CONTENT, input.Length - pos);
-            chunks.Add(input.Substring(pos, len));
-            pos += len;
-        }
-
-        return chunks;
     }
 }

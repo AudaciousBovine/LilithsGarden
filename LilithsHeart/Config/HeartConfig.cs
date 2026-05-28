@@ -13,24 +13,26 @@ namespace LilithsHeart.Config;
 //
 // [CHANGED] Removed StartingInventorySize and GlobalPlayerMovementSpeedMultiplier.
 //           HeartConfig is infrastructure-only. Gameplay settings belong in the
-//           module that owns the feature, not in the shared core. Those two
-//           settings will move to the appropriate gameplay module when built.
+//           module that owns the feature, not in the shared core.
 //
 // [ADDED] GenerateLocalizationExample — opt-in example file generation.
 //         Follows the same pattern as CookbookConfig.GenerateAllRecipes.
-//         The example is only written when explicitly requested by the admin.
-//         The flag resets to false automatically after generation so the
-//         file is never overwritten on subsequent boots.
+//
+// [ADDED] ChunksPerFrame — controls the tiered sync send rate.
+//         Limits how many chat message entities are created per frame
+//         when sending sync payloads to connecting clients.
 public static class HeartConfig
 {
     private const string LOG_SOURCE = "LilithsHeart.HeartConfig";
 
-    static ConfigEntry<bool> _debugLogging              = null!;
+    static ConfigEntry<bool> _debugLogging                = null!;
     static ConfigEntry<bool> _generateLocalizationExample = null!;
+    static ConfigEntry<int>  _chunksPerFrame              = null!;
 
     public static ConfigEntry<string> ServerName { get; private set; } = null!;
 
-    public static bool IsDebug => _debugLogging.Value;
+    public static bool IsDebug        => _debugLogging.Value;
+    public static int  ChunksPerFrame => _chunksPerFrame.Value;
 
     /// <summary>
     /// When true, LocalizationService writes an example localization JSON
@@ -57,10 +59,6 @@ public static class HeartConfig
                           "configs. Change this if you run multiple LilithsGarden servers."
         );
 
-        // [ADDED] Opt-in example localization file generation.
-        //         Disabled by default — only generates when the admin explicitly
-        //         sets this to true. Resets automatically after generation via
-        //         DisableGenerateLocalizationExample().
         _generateLocalizationExample = config.Bind(
             section:      "Generation",
             key:          "GenerateLocalizationExample",
@@ -71,7 +69,33 @@ public static class HeartConfig
                           "game objects. This setting resets to false automatically after generation."
         );
 
-        HeartLogger.Info(LOG_SOURCE, $"HeartConfig loaded. Debug={IsDebug}");
+        // [ADDED] ChunksPerFrame — tiered sync rate limiter.
+        //         Controls how many ChatMessageServerEvent entities are created
+        //         per frame when draining the SyncQueue for connected clients.
+        //
+        //         Lower values reduce per-frame entity creation cost at the
+        //         expense of longer sync times. Higher values speed up sync
+        //         but increase frame load on connect spikes.
+        //
+        //         At 10 chunks/frame and 60fps:
+        //           ~290 total chunks → ~0.5 seconds to fully sync one client
+        //           With 20 simultaneous connects: 200 entity creates/frame
+        //
+        //         [PERFORMANCE] Reduce this value if you observe frame drops
+        //         during large simultaneous-connect events (e.g. server restart
+        //         when all players reconnect at once).
+        _chunksPerFrame = config.Bind(
+            section:      "Sync",
+            key:          "ChunksPerFrame",
+            defaultValue: 10,
+            description:  "Maximum number of sync payload chunks sent per server frame. " +
+                          "Higher values sync clients faster but increase CPU load on connect. " +
+                          "Reduce if you see frame drops when many players connect simultaneously. " +
+                          "Default: 10. Range: 1-50."
+        );
+
+        HeartLogger.Info(LOG_SOURCE,
+            $"HeartConfig loaded. Debug={IsDebug}, ChunksPerFrame={ChunksPerFrame}");
     }
 
     /// <summary>

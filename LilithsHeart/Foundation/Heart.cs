@@ -64,10 +64,10 @@ public static class Heart
 
     static string _serverIdentity = string.Empty;
 
-    static readonly Dictionary<string, LilithRecipeData>        _pendingRecipeOverrides        = new();
-    static readonly Dictionary<string, LilithStationData> _pendingStationRecipeOverrides = new();
-    static readonly List<string>                                   _pendingPlayerRecipesToAdd     = new();
-    static readonly List<string>                                   _pendingPlayerRecipesToRemove  = new();
+    static readonly Dictionary<string, LilithRecipeData>  _pendingRecipeOverrides        = new();
+    static readonly Dictionary<string, LilithStationData> _pendingStationRecipeOverrides  = new();
+    static readonly List<string>                           _pendingPlayerRecipesToAdd      = new();
+    static readonly List<string>                           _pendingPlayerRecipesToRemove   = new();
 
     // ── Lifecycle ─────────────────────────────────────────────
 
@@ -97,10 +97,10 @@ public static class Heart
         OnInitialized?.Invoke();
 
         // Rebuild payload after all modules have registered their overrides.
-        bool needsRebuild = _pendingRecipeOverrides.Count        > 0 ||
-                            _pendingStationRecipeOverrides.Count  > 0 ||
-                            _pendingPlayerRecipesToAdd.Count      > 0 ||
-                            _pendingPlayerRecipesToRemove.Count   > 0;
+        bool needsRebuild = _pendingRecipeOverrides.Count       > 0 ||
+                            _pendingStationRecipeOverrides.Count > 0 ||
+                            _pendingPlayerRecipesToAdd.Count     > 0 ||
+                            _pendingPlayerRecipesToRemove.Count  > 0;
 
         if (needsRebuild)
         {
@@ -139,6 +139,12 @@ public static class Heart
         _pendingPlayerRecipesToAdd.Clear();
         _pendingPlayerRecipesToRemove.Clear();
         OnInitialized = null;
+
+        // [ADDED] Clear any pending sync chunks for all clients.
+        //         Prevents stale chunks from a previous world session
+        //         being sent on the next world load.
+        SyncQueue.ClearAll();
+
         HeartLogger.Info(LOG_SOURCE, "Heart destroyed.");
     }
 
@@ -147,7 +153,6 @@ public static class Heart
     /// <summary>
     /// Called by RecipeSystem after applying recipe ECS changes.
     /// Queues overrides for inclusion in the next ServerSyncPayload build.
-    ///
     /// [PERFORMANCE] Called once at startup per module — O(n) over overrides.
     /// </summary>
     public static void RegisterRecipeOverrides(Dictionary<string, LilithRecipeData> overrides)
@@ -160,10 +165,7 @@ public static class Heart
     }
 
     /// <summary>
-    /// Called by StationSystem after patching WorkstationRecipesBuffer station
-    /// entities. Queues station overrides so Soul can patch placed workstation
-    /// entities client-side to match server-side display.
-    ///
+    /// Called by StationSystem after patching WorkstationRecipesBuffer station entities.
     /// [PERFORMANCE] Called once at startup per WorkstationRecipesBuffer station.
     /// </summary>
     public static void RegisterStationRecipeChanges(string stationName, List<string> toAdd, List<string> toRemove)
@@ -188,11 +190,7 @@ public static class Heart
 
     /// <summary>
     /// Called by StationSystem after patching live User entities.
-    /// Queues player recipe changes so Soul can patch the client player
-    /// entity WorkstationRecipesBuffer to match the server.
-    ///
     /// [PERFORMANCE] Called once at startup per player crafting entry.
-    ///               Lists are accumulated — later calls append, not replace.
     /// </summary>
     public static void RegisterPlayerRecipeChanges(List<string> toAdd, List<string> toRemove)
     {

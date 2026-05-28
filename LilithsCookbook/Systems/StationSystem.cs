@@ -1,10 +1,9 @@
 using ProjectM;
-using ProjectM.Tiles;
 using Stunlock.Core;
 using Unity.Entities;
 using LilithsHeart.Foundation;
 using LilithsHeart.Services;
-
+using LilithsCookbook.Data;
 namespace LilithsCookbook.Systems;
 
 // ============================================================
@@ -24,7 +23,8 @@ namespace LilithsCookbook.Systems;
 //  Pass 1: Patch all prefab entities (all buffer types).
 //  Registration: RegisterRecipes() + RegisterGameData().
 //  Pass 2: Patch live entities only — User entities for player
-//          crafting, placed station entities for WorkstationRecipesBuffer.
+//          crafting, placed station entities via single batched
+//          GetAllEntities() scan.
 //
 //  Why two passes?
 //  ───────────────
@@ -32,14 +32,22 @@ namespace LilithsCookbook.Systems;
 //  entities. Pass 1 prefab patches survive this reset. Pass 2 live
 //  entity patches happen after registration so they persist.
 //
-//  Why CreateEntityQuery was insufficient:
-//  ────────────────────────────────────────
-//  Placed WorkstationRecipesBuffer station entities have the Prefab
-//  ECS tag, which causes CreateEntityQuery to exclude them by default.
-//  Pass 2 uses an explicit Prefab + TileModel filter to find them.
+//  Why GetAllEntities() for placed stations:
+//  ──────────────────────────────────────────
+//  V Rising keeps the Unity.Entities.Prefab tag on placed world
+//  instances, making None=[Prefab] query exclusion ineffective.
+//  GetAllEntities() with direct prefab entity identity exclusion
+//  (entity == prefabEntity) is the only reliable approach.
+//
+//  [CHANGED] PatchAllLiveStationEntities() replaces the per-station
+//            PatchLiveStationEntities() call. A single GetAllEntities()
+//            scan handles all configured WorkstationRecipesBuffer
+//            stations in one pass — O(entities) instead of
+//            O(entities × station count).
 //
 //  [PERFORMANCE] All ECS operations run once at startup only.
 //                No per-frame cost after initialization.
+//                Single GetAllEntities() scan for all stations.
 // ============================================================
 
 public static class StationSystem
@@ -115,14 +123,19 @@ public static class StationSystem
         }
 
         // ── Registration ──────────────────────────────────────────────────────
-        // RegisterGameData() resets WorkstationRecipesBuffer on all live entities.
-        // Live entity patching must happen after this call.
         Heart.GameDataSystem.RegisterRecipes();
         Heart.PrefabCollectionSystem.RegisterGameData();
 
         // ── Pass 2: Patch all live entities ───────────────────────────────────
-        // Patches live User entities (player crafting menu) and placed station
-        // entities. Refinement stations require no live entity patching.
+        // Build lookup maps for Pass 2 before scanning entities.
+
+        // User entity patching — handled per-station as before (cheap query).
+        // Workstation live entity patching — batched into one GetAllEntities() scan.
+
+        // [CHANGED] Build a map of PrefabGUID → (stationName, entry, prefabEntity)
+        //           for all WorkstationRecipesBuffer stations that need live patching.
+        //           This allows a single GetAllEntities() scan to handle all of them.
+        var workstationTargets = new Dictionary<int, (string Name, StationEntryData Entry, Entity PrefabEntity)>();
 
         int changed = 0;
 
@@ -137,37 +150,36 @@ public static class StationSystem
             bool hasWorkstation = stationEntity.Has<WorkstationRecipesBuffer>();
             bool isPlayerEntity = stationEntity.Has<ProjectM.Network.User>();
 
-            // Refinement stations need no live entity patching.
             if (!hasWorkstation) continue;
 
             if (isPlayerEntity)
             {
+                // User entity patching uses a targeted query — cheap, no batching needed.
                 PatchLiveUserEntities(entry.AddRecipes, entry.RemoveRecipes, stationName);
                 Heart.RegisterPlayerRecipeChanges(entry.AddRecipes, entry.RemoveRecipes);
                 HeartLogger.Info(LOG_SOURCE,
                     $"[{stationName}] Registered {entry.AddRecipes.Count} add(s) and " +
                     $"{entry.RemoveRecipes.Count} remove(s) with Heart for Soul sync.");
+                changed++;
             }
             else
             {
-                PatchLiveStationEntities(guid, entry.AddRecipes, entry.RemoveRecipes, stationName);
+                // Queue for the batched live station scan.
+                workstationTargets[guid._Value] = (stationName, entry, stationEntity);
                 Heart.RegisterStationRecipeChanges(stationName, entry.AddRecipes, entry.RemoveRecipes);
+                changed++;
             }
-
-            changed++;
         }
+
+        // Single batched scan for all WorkstationRecipesBuffer placed stations.
+        if (workstationTargets.Count > 0)
+            PatchAllLiveStationEntities(workstationTargets);
 
         HeartLogger.Info(LOG_SOURCE, $"LilithsCookbook applied changes to {changed} station(s).");
     }
 
     // ── Live User entity patching ─────────────────────────────────────────────
 
-    /// <summary>
-    /// Patches WorkstationRecipesBuffer on all live User entities.
-    /// Called in Pass 2 after RegisterGameData() so changes persist.
-    ///
-    /// [PERFORMANCE] One targeted query at startup — no per-frame cost.
-    /// </summary>
     static void PatchLiveUserEntities(
         List<string> addRecipes,
         List<string> removeRecipes,
@@ -202,68 +214,68 @@ public static class StationSystem
         }
     }
 
-    // ── Live placed station entity patching ───────────────────────────────────
+    // ── Batched live placed station entity patching ───────────────────────────
 
     /// <summary>
-    /// Patches WorkstationRecipesBuffer on all placed world instances of a
-    /// station matching the given PrefabGUID.
+    /// Patches WorkstationRecipesBuffer on all placed world instances of all
+    /// configured stations in a single GetAllEntities() scan.
     ///
-    /// Why Prefab + TileModel filter:
-    /// ───────────────────────────────
-    /// Placed WorkstationRecipesBuffer station entities have the Unity ECS
-    /// Prefab tag, which causes CreateEntityQuery to exclude them by default.
-    /// Adding ComponentType.ReadOnly&lt;Prefab&gt;() opts the query back in to
-    /// entities with that tag. TileModel confirms the entity is a placed
-    /// building rather than an inventory container or other entity type.
+    /// [CHANGED] Replaces per-station PatchLiveStationEntities() calls.
+    ///           Previously each station triggered its own GetAllEntities() scan —
+    ///           O(entities × station count). Now a single scan handles all
+    ///           configured stations — O(entities) regardless of station count.
     ///
-    /// [PERFORMANCE] One targeted query per WorkstationRecipesBuffer station
-    ///               at startup — no per-frame cost.
+    ///           V Rising keeps Unity.Entities.Prefab on placed world instances
+    ///           so None=[Prefab] query exclusion is ineffective. GetAllEntities()
+    ///           with direct prefab entity identity exclusion is required.
+    ///
+    /// [PERFORMANCE] One GetAllEntities() scan at startup covering all stations.
+    ///               Patched counts are logged per station for diagnostics.
     /// </summary>
-    static void PatchLiveStationEntities(
-        PrefabGUID stationGuid,
-        List<string> addRecipes,
-        List<string> removeRecipes,
-        string stationName)
+    static void PatchAllLiveStationEntities(
+        Dictionary<int, (string Name, StationEntryData Entry, Entity PrefabEntity)> targets)
     {
-        var em = Heart.EntityManager;
+        var em          = Heart.EntityManager;
+        var allEntities = em.GetAllEntities(Unity.Collections.Allocator.Temp);
 
-        // Prefab tag is required to include placed station entities which Unity
-        // ECS excludes from queries by default. TileModel confirms building entity.
-        var query = em.CreateEntityQuery(
-            ComponentType.ReadWrite<WorkstationRecipesBuffer>(),
-            ComponentType.ReadOnly<TileModel>(),
-            ComponentType.ReadOnly<Unity.Entities.Prefab>()
-        );
-
-        var entities = query.ToEntityArray(Unity.Collections.Allocator.Temp);
+        // Track patch counts per station for logging.
+        var patchedCounts = new Dictionary<int, int>();
+        foreach (var guid in targets.Keys)
+            patchedCounts[guid] = 0;
 
         try
         {
-            int patched = 0;
-
-            foreach (var entity in entities)
+            foreach (var entity in allEntities)
             {
                 if (!em.HasComponent<Stunlock.Core.PrefabGUID>(entity)) continue;
 
-                var prefabGuid = em.GetComponentData<Stunlock.Core.PrefabGUID>(entity);
-                if (!prefabGuid.Equals(stationGuid)) continue;
+                var entityGuid = em.GetComponentData<Stunlock.Core.PrefabGUID>(entity);
 
-                if (addRecipes.Count > 0)
-                    AddWorkstationRecipes(entity, addRecipes, stationName);
+                if (!targets.TryGetValue(entityGuid._Value, out var target)) continue;
 
-                if (removeRecipes.Count > 0)
-                    RemoveWorkstationRecipes(entity, removeRecipes, stationName);
+                if (!em.HasBuffer<WorkstationRecipesBuffer>(entity)) continue;
 
-                patched++;
+                // Skip the prefab template entity — already patched in Pass 1.
+                if (entity == target.PrefabEntity) continue;
+
+                if (target.Entry.AddRecipes.Count > 0)
+                    AddWorkstationRecipes(entity, target.Entry.AddRecipes, target.Name);
+
+                if (target.Entry.RemoveRecipes.Count > 0)
+                    RemoveWorkstationRecipes(entity, target.Entry.RemoveRecipes, target.Name);
+
+                patchedCounts[entityGuid._Value]++;
             }
-
-            HeartLogger.Info(LOG_SOURCE,
-                $"[{stationName}] Patched {patched} live station entity(s).");
         }
         finally
         {
-            entities.Dispose();
+            allEntities.Dispose();
         }
+
+        // Log results per station.
+        foreach (var (guidValue, (name, _, _)) in targets)
+            HeartLogger.Info(LOG_SOURCE,
+                $"[{name}] Patched {patchedCounts[guidValue]} live station entity(s).");
     }
 
     // ── RefinementstationRecipesBuffer helpers ────────────────────────────────
@@ -284,17 +296,12 @@ public static class StationSystem
             bool alreadyExists = false;
             for (int i = 0; i < buffer.Length; i++)
             {
-                if (buffer[i].RecipeGuid.Equals(recipeGuid))
-                {
-                    alreadyExists = true;
-                    break;
-                }
+                if (buffer[i].RecipeGuid.Equals(recipeGuid)) { alreadyExists = true; break; }
             }
 
             if (alreadyExists)
             {
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
+                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
                 continue;
             }
 
@@ -358,17 +365,12 @@ public static class StationSystem
             bool alreadyExists = false;
             for (int i = 0; i < buffer.Length; i++)
             {
-                if (buffer[i].RecipeGuid.Equals(recipeGuid))
-                {
-                    alreadyExists = true;
-                    break;
-                }
+                if (buffer[i].RecipeGuid.Equals(recipeGuid)) { alreadyExists = true; break; }
             }
 
             if (alreadyExists)
             {
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
+                HeartLogger.Info(LOG_SOURCE, $"[{stationName}] Recipe '{recipeName}' already present, skipping.");
                 continue;
             }
 
