@@ -49,34 +49,34 @@ Naming Conventions:
 </details>
 <details>
 <summary><strong>LilithsHeart</strong></summary>
-```
-[LilithsHeart]
-    LilithsHeart.csproj
-    HeartPlugin.cs
-    [Config]
-        HeartConfig.cs
-        HeartPathIndex.cs
-        LocalizationConfig.cs
-    [Events]
-        HeartEventBus.cs
-        HeartEventIndex.cs
-    [Foundation]
-        EntityExtensions.cs
-        Heart.cs
-        HeartLogger.cs
-    [Modules]
-        HeartModuleRegistry.cs
-        HeartModuleData.cs
-    [Network]
-        SyncPayloadCache.cs
-        SyncSender.cs
-    [Patches]
-        ClientConnectPatch.cs
-        InitializationPatch.cs
-    [Services]
-        LocalizationService.cs
-        PrefabNameResolver.cs
-```
+
+- [LilithsHeart]
+-    LilithsHeart.csproj
+-    HeartPlugin.cs
+-    [Config]
+-        HeartConfig.cs
+-        HeartPathIndex.cs
+-        LocalizationConfig.cs
+-    [Events]
+-        HeartEventBus.cs
+-        HeartEventIndex.cs
+-    [Foundation]
+-        EntityExtensions.cs
+-        Heart.cs
+-        HeartLogger.cs
+-    [Modules]
+-        HeartModuleRegistry.cs
+-        HeartModuleData.cs
+-    [Network]
+-        SyncPayloadCache.cs
+-        SyncSender.cs
+-    [Patches]
+-        ClientConnectPatch.cs
+-        InitializationPatch.cs
+-    [Services]
+-        LocalizationService.cs
+-        PrefabNameResolver.cs
+
 </details>
 <details>
 <summary><strong>LilithsSoul</strong></summary>
