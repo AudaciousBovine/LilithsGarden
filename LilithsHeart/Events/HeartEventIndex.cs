@@ -1,5 +1,5 @@
 // ============================================================
-//  HeartEvents — Core event definitions for LilithsHeart.
+//  HeartEventIndex — Core event definitions for LilithsHeart.
 //
 //  [CHANGED] Moved from Systems/ → Events/.
 //

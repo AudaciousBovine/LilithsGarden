@@ -34,7 +34,7 @@ public static class ServerRegistry
 {
     private const string LOG_SOURCE = "LilithsSoul.ServerRegistry";
 
-    static readonly string FilePath = Path.Combine(SoulPaths.Root, "servers.json");
+    static readonly string FilePath = Path.Combine(SoulPathIndex.Root, "servers.json");
 
     static readonly JsonSerializerOptions _readOptions = new()
     {
@@ -142,7 +142,7 @@ public static class ServerRegistry
     {
         try
         {
-            Directory.CreateDirectory(SoulPaths.Root);
+            Directory.CreateDirectory(SoulPathIndex.Root);
             var json = JsonSerializer.Serialize(_map, _writeOptions);
             File.WriteAllText(FilePath, json);
             SoulLogger.Debug(LOG_SOURCE, "servers.json saved.");

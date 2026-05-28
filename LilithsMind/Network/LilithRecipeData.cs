@@ -22,8 +22,8 @@
 //    • Requirements   — ingredient list shown before crafting
 //    • Outputs        — output item list shown in the recipe card
 //
-//  Soul uses these to patch RecipeData, RecipeRequirementBuffer,
-//  and RecipeOutputBuffer on client-side prefab entities so the
+//  Soul uses these to patch RecipeData, CookbookItemData Buffer,
+//  and CookbookItemData Buffer on client-side prefab entities so the
 //  UI reflects what Heart enforces server-side.
 //
 //  Usage example:
@@ -58,14 +58,14 @@ public sealed class LilithRecipeData
     /// <summary>
     /// Ingredient requirements — prefab name → stack amount.
     /// e.g. { "Item_Ingredient_Mineral_CopperIngot": 3 }
-    /// Patched into RecipeRequirementBuffer on the client prefab entity.
+    /// Patched into CookbookItemData Buffer on the client prefab entity.
     /// </summary>
     public Dictionary<string, int> Requirements { get; set; } = new();
 
     /// <summary>
     /// Output items — prefab name → stack amount.
     /// e.g. { "Item_Weapon_Sword_T01": 1 }
-    /// Patched into RecipeOutputBuffer on the client prefab entity.
+    /// Patched into CookbookItemData Buffer on the client prefab entity.
     /// </summary>
     public Dictionary<string, int> Outputs { get; set; } = new();
 }

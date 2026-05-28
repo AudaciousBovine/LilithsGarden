@@ -29,12 +29,12 @@ public class CookbookPlugin : BasePlugin
     {
         HeartLogger.Info(LOG_SOURCE, $"{LilithsCookbook.MyPluginInfo.PLUGIN_NAME} v{LilithsCookbook.MyPluginInfo.PLUGIN_VERSION} loading.");
 
-        var configFile = new ConfigFile(HeartPaths.ModuleConfig("LilithsCookbook"), saveOnInit: true);
+        var configFile = new ConfigFile(HeartPathIndex.ModuleConfig("LilithsCookbook"), saveOnInit: true);
 
         CookbookConfig.Initialize(configFile);
-        CookbookGenerator.Initialize();
+        CookbookBuilder.Initialize();
 
-        HeartRegistry.Register(new ModuleInfo
+        HeartModuleRegistry.Register(new HeartModuleData
         {
             ModuleId   = LilithsCookbook.MyPluginInfo.PLUGIN_GUID,
             ModuleName = LilithsCookbook.MyPluginInfo.PLUGIN_NAME,
@@ -53,10 +53,10 @@ public class CookbookPlugin : BasePlugin
 
     static void OnHeartInitialized()
     {
-        CookbookGenerator.GenerateAllRecipesIfRequested();
+        CookbookBuilder.GenerateAllRecipesIfRequested();
 
-        RecipeData  = CookbookLoader.LoadRecipes(CookbookGenerator.RecipesDir);
-        StationData = CookbookLoader.LoadStations(CookbookGenerator.StationsDir);
+        RecipeData  = CookbookLoader.LoadRecipes(CookbookBuilder.RecipesDir);
+        StationData = CookbookLoader.LoadStations(CookbookBuilder.StationsDir);
 
         RecipeSystem.ApplyChanges();
         StationSystem.ApplyChanges();

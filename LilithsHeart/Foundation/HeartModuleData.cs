@@ -5,9 +5,9 @@ namespace LilithsHeart.Modules;
 
 /// <summary>
 /// Metadata describing a registered LilithsHeart module.
-/// Passed to HeartRegistry.Register() in each module's Plugin.Load().
+/// Passed to HeartModuleRegistry.Register() in each module's Plugin.Load().
 /// </summary>
-public class ModuleInfo
+public class HeartModuleData
 {
     /// <summary>
     /// Unique reverse-domain ID matching the BepInPlugin GUID.

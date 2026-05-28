@@ -1,5 +1,5 @@
 // ============================================================
-//  SoulPaths — LilithsSoul
+//  SoulPathIndex — LilithsSoul
 //
 //  Single source of truth for every filesystem path used by
 //  LilithsSoul and its child client modules.
@@ -17,13 +17,13 @@
 //  ServerSyncPayload. Each server the client connects to gets
 //  its own subfolder so configs don't collide.
 //
-//  Unlike HeartPaths (which is flat for child modules), Soul uses
+//  Unlike HeartPathIndex (which is flat for child modules), Soul uses
 //  per-server subfolders because the data IS per-server by design.
 // ============================================================
 
 namespace LilithsSoul.Config;
 
-public static class SoulPaths
+public static class SoulPathIndex
 {
     // ── Root ────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ public static class SoulPaths
 
     /// <summary>
     /// Returns the directory for a specific server's cached data.
-    /// e.g. SoulPaths.ServerDir("LilithsGarden")
+    /// e.g. SoulPathIndex.ServerDir("LilithsGarden")
     ///      → BepInEx/config/LilithsSoul/LilithsGarden/
     ///
     /// ServerIdentity comes from ServerSyncPayload.ServerIdentity
@@ -58,7 +58,7 @@ public static class SoulPaths
 
     /// <summary>
     /// Returns the path to the cached sync payload for a specific server.
-    /// e.g. SoulPaths.SyncFile("LilithsGarden")
+    /// e.g. SoulPathIndex.SyncFile("LilithsGarden")
     ///      → BepInEx/config/LilithsSoul/LilithsGarden/sync.json
     /// </summary>
     public static string SyncFile(string serverIdentity)

@@ -14,7 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <!--
-      Cookbook uses ProjectM types directly — RecipeData, RecipeRequirementBuffer,
+      Cookbook uses ProjectM types directly — RecipeData, CookbookItemData Buffer,
       RefinementstationRecipesBuffer, etc. — so it needs the server assemblies
       even though Heart is already a ProjectReference.
       NuGet package references are not transitively exposed through ProjectReferences

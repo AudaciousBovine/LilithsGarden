@@ -5,6 +5,7 @@ using LilithsHeart.Config;
 using LilithsHeart.Events;
 using LilithsHeart.Network;
 using LilithsHeart.Modules;
+using LilithsHeart.Services;
 using LilithsMind.Network;
 
 namespace LilithsHeart.Foundation;
@@ -78,7 +79,7 @@ public static class Heart
         HeartLogger.Info(LOG_SOURCE, "Heart initializing...");
 
         PrefabNameResolver.Initialize();
-        LocalizationConfig.Initialize();
+        LocalizationService.Initialize();
 
         _serverIdentity = ResolveServerIdentity();
 
@@ -118,7 +119,7 @@ public static class Heart
                 _pendingPlayerRecipesToRemove);
         }
 
-        HeartRegistry.LogSummary();
+        HeartModuleRegistry.LogSummary();
         HeartEventBus.Publish(new OnWorldReady());
     }
 

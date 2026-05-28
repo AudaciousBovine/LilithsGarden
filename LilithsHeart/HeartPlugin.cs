@@ -23,11 +23,11 @@ public class HeartPlugin : BasePlugin
         {
             HeartLogger.Info("LilithsHeart", $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
 
-            var configFile = new ConfigFile(HeartPaths.CoreConfig, saveOnInit: true);
+            var configFile = new ConfigFile(HeartPathIndex.CoreConfig, saveOnInit: true);
 
             HeartConfig.Initialize(configFile);
             HeartEventBus.Initialize();
-            HeartRegistry.Initialize();
+            HeartModuleRegistry.Initialize();
 
             _harmony?.UnpatchSelf();
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
@@ -55,7 +55,7 @@ public class HeartPlugin : BasePlugin
         Heart.OnDestroy();
 
         HeartEventBus.Shutdown();
-        HeartRegistry.Shutdown();
+        HeartModuleRegistry.Shutdown();
 
         HeartLogger.Info("LilithsHeart", "LilithsHeart unloaded.");
         return true;

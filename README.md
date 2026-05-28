@@ -3,22 +3,7 @@ A modular V Rising mod suite
 
 
 
-
-
-
 Naming Conventions:
-
-
-
-
-
-
-
-
-
-
-
-
 [*Patch] - Harmony patch that injects before or after game code
 [*Patcher] - Modifices ECS component Data
 [*Injector] - Injects values into game systems outside of ECS
@@ -33,8 +18,11 @@ Naming Conventions:
 [*Enum] - Named set of constant values
 [*Registry] - Runtime lookup table populated dynamically
 [*Config] - Defines settings and writes config files
-
-[*System]
+[*Logger] - Logging utility for console messages
+[*Extensions] - Methods of commonly used code
+[*Sender] - Sends information over network
+[*System] - Recurring logic systems
+[*Loader] - Reads and merges data for use
 
 
 [LilithsMind]
@@ -49,5 +37,63 @@ Naming Conventions:
         [Definitions]
             *Index.cs
 
+[LilithsHeart]
+    LilithsHeart.csproj
+    HeartPlugin.cs
+    [Config]
+        HeartConfig.cs
+        HeartPathIndex.cs
+        LocalizationConfig.cs
+    [Events]
+        HeartEventBus.cs
+        HeartEventIndex.cs
+    [Foundation]
+        EntityExtensions.cs
+        Heart.cs
+        HeartLogger.cs
+    [Modules]
+        HeartModuleRegistry.cs
+        HeartModuleData.cs
+    [Network]
+        SyncPayloadCache.cs
+        SyncSender.cs
+    [Patches]
+        ClientConnectPatch.cs
+        InitializationPatch.cs
+    [Services]
+        LocalizationService.cs
+        PrefabNameResolver.cs
 
+[LilithsSoul]
+    LilithsSoul.csproj
+    SoulPlugin.cs
+        [Config]
+            SoulConfig.cs
+            SoulPathIndex.cs
+        [Foundation]
+            EntityExtensions.cs
+            Soul.cs
+            SoulLogger.cs
+        [Network]
+            SyncReceiver.cs
+        [Patches]
+            ClientChatSystemPatch.cs
+            ClientInitPatch.cs
+        [Services]
+            LocalizationInjector.cs
+            RecipePatcher.cs
+            ServerRegistry.cs
 
+[LilithsCookbook]
+    LilithsCookbook.csproj
+    [Config]
+        CookbookConfig.cs
+    [Data]
+        CookbookItemData.cs
+        CookbookRecipeData.cs
+        CookbookStationData.cs
+    [Systems]
+        CookbookBuilder.cs
+        CookbookLoader.cs
+        RecipeSystem.cs
+        StationSystem.cs

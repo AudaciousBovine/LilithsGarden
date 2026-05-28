@@ -43,7 +43,7 @@ using LilithsMind.Prefabs;
 //                No file I/O occurs at any point.
 // ============================================================
 
-namespace LilithsHeart.Foundation;
+namespace LilithsHeart.Services;
 
 public static class PrefabNameResolver
 {

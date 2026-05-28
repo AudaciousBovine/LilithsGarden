@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using LilithsHeart.Foundation;
 
 // ============================================================
-//  HeartRegistry — LilithsHeart Module Registration Hub
+//  HeartModuleRegistry — LilithsHeart Module Registration Hub
 //
 //  [CHANGED] Moved from Registry/ → Modules/.
 //            Namespace updated: LilithsHeart.Registry → LilithsHeart.Modules.
@@ -13,7 +13,7 @@ using LilithsHeart.Foundation;
 //
 //  Usage in another module's Plugin.Load():
 //
-//      HeartRegistry.Register(new ModuleInfo
+//      HeartModuleRegistry.Register(new HeartModuleData
 //      {
 //          ModuleId   = "audaciousbovine.lilithsbounty",
 //          ModuleName = "LilithsBounty",
@@ -22,7 +22,7 @@ using LilithsHeart.Foundation;
 //
 //  Checking for optional integrations:
 //
-//      if (HeartRegistry.IsLoaded("audaciousbovine.lilithstreasury"))
+//      if (HeartModuleRegistry.IsLoaded("audaciousbovine.lilithstreasury"))
 //          // wire up Treasury integration
 //
 //  [PERFORMANCE] Registry is a small in-memory dictionary.
@@ -31,29 +31,29 @@ using LilithsHeart.Foundation;
 
 namespace LilithsHeart.Modules;
 
-public static class HeartRegistry
+public static class HeartModuleRegistry
 {
-    private const string LOG_SOURCE = "LilithsHeart.HeartRegistry";
+    private const string LOG_SOURCE = "LilithsHeart.HeartModuleRegistry";
 
-    private static readonly Dictionary<string, ModuleInfo> _modules = new();
+    private static readonly Dictionary<string, HeartModuleData> _modules = new();
 
     // Optional callback fired when any module registers.
     // Useful for late-arriving optional integrations — a module
     // can watch for a partner it depends on optionally.
-    public static event Action<ModuleInfo>? OnModuleRegistered;
+    public static event Action<HeartModuleData>? OnModuleRegistered;
 
     public static void Initialize()
     {
         _modules.Clear();
         OnModuleRegistered = null;
-        HeartLogger.Info(LOG_SOURCE, "HeartRegistry initialized.");
+        HeartLogger.Info(LOG_SOURCE, "HeartModuleRegistry initialized.");
     }
 
     public static void Shutdown()
     {
         _modules.Clear();
         OnModuleRegistered = null;
-        HeartLogger.Info(LOG_SOURCE, "HeartRegistry shut down.");
+        HeartLogger.Info(LOG_SOURCE, "HeartModuleRegistry shut down.");
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public static class HeartRegistry
     /// Call this in your module's Plugin.Load().
     /// Safe to call multiple times with the same ID — later calls update the entry.
     /// </summary>
-    public static void Register(ModuleInfo info)
+    public static void Register(HeartModuleData info)
     {
         _modules[info.ModuleId] = info;
         HeartLogger.Info(LOG_SOURCE, $"Registered: {info.ModuleName} v{info.Version}");
@@ -76,15 +76,15 @@ public static class HeartRegistry
         => _modules.ContainsKey(moduleId);
 
     /// <summary>
-    /// Returns the ModuleInfo for a module, or null if not found.
+    /// Returns the HeartModuleData for a module, or null if not found.
     /// </summary>
-    public static ModuleInfo? GetModule(string moduleId)
+    public static HeartModuleData? GetModule(string moduleId)
         => _modules.TryGetValue(moduleId, out var info) ? info : null;
 
     /// <summary>
     /// Returns all currently registered modules.
     /// </summary>
-    public static IReadOnlyList<ModuleInfo> GetAllModules()
+    public static IReadOnlyList<HeartModuleData> GetAllModules()
         => _modules.Values.ToList().AsReadOnly();
 
     /// <summary>

@@ -2,6 +2,7 @@ using ProjectM;
 using Stunlock.Core;
 using Unity.Entities;
 using LilithsHeart.Foundation;
+using LilithsHeart.Services;
 using LilithsMind.Network;
 using LilithsCookbook.Data;
 
@@ -21,10 +22,16 @@ namespace LilithsCookbook.Systems;
 //  The crafting system reads CraftDuration and other scalar fields
 //  from the map — not the entity — so both must be kept in sync.
 //
-//  [CHANGED] BuildSoulOverride() now builds Requirements and Outputs
+//  [CHANGED] BuildSoulOverride() builds Requirements and Outputs
 //            as Dictionary<string, int> (prefab name → amount)
-//            instead of List<LilithRecipeData> with Item/Amount fields.
-//            This matches the simplified LilithRecipeData structure.
+//            matching the simplified LilithRecipeData structure.
+//
+//  [CHANGED] RecipeRequirement, RecipeOutput, RecipeRepairCost,
+//            RecipeUnitOutput consolidated into CookbookItemData.
+//            ECS buffer types (RecipeRequirementBuffer etc.) are
+//            unchanged — those are V Rising game types, not ours.
+//
+//  [CHANGED] RecipeEntry → RecipeEntryData to follow naming convention.
 //
 //  [PERFORMANCE] ApplyChanges() runs once at startup. All ECS
 //                writes and map updates are one-time costs.
@@ -117,13 +124,7 @@ public static class RecipeSystem
     /// <summary>
     /// Builds a LilithRecipeData by reading the current ECS entity state
     /// after all changes have been applied. Reading from ECS rather than the
-    /// config entry ensures the override reflects what was actually committed
-    /// (e.g. a requirement item that failed to resolve won't appear).
-    ///
-    /// [CHANGED] Requirements and Outputs are now Dictionary<string, int>
-    ///           (prefab name → amount) matching the simplified LilithRecipeData.
-    ///           Previously used List<LilithRecipeData> with Item/Amount fields
-    ///           which no longer exist on the type.
+    /// config entry ensures the override reflects what was actually committed.
     ///
     /// [PERFORMANCE] Called once per changed recipe at startup only.
     /// </summary>
@@ -134,9 +135,8 @@ public static class RecipeSystem
         if (recipeEntity.TryGetComponent<RecipeData>(out var recipeData))
             result.CraftDuration = recipeData.CraftDuration;
 
-        // [CHANGED] Build Requirements as Dictionary<string, int>.
-        //           Key: prefab name resolved via PrefabNameResolver.
-        //           Value: ingredient stack amount.
+        // Build Requirements as Dictionary<string, int>.
+        // RecipeRequirementBuffer is a V Rising ECS type — not renamed.
         if (recipeEntity.TryGetBuffer<RecipeRequirementBuffer>(out var reqBuffer))
         {
             result.Requirements = new Dictionary<string, int>(reqBuffer.Length);
@@ -151,9 +151,8 @@ public static class RecipeSystem
             }
         }
 
-        // [CHANGED] Build Outputs as Dictionary<string, int>.
-        //           Key: prefab name resolved via PrefabNameResolver.
-        //           Value: output stack amount.
+        // Build Outputs as Dictionary<string, int>.
+        // RecipeOutputBuffer is a V Rising ECS type — not renamed.
         if (recipeEntity.TryGetBuffer<RecipeOutputBuffer>(out var outBuffer))
         {
             result.Outputs = new Dictionary<string, int>(outBuffer.Length);
@@ -176,18 +175,10 @@ public static class RecipeSystem
     /// <summary>
     /// Applies scalar RecipeData fields to both the prefab entity component
     /// and directly into RecipeHashLookupMap.
-    ///
-    /// RecipeHashLookupMap is populated from baked scene data at startup and
-    /// is not updated by RegisterRecipes() from live entity components. The
-    /// crafting system reads CraftDuration and other scalar fields from the
-    /// map, not the entity — so both must be written to ensure changes apply.
-    ///
-    /// [PERFORMANCE] One map read + one map write per changed recipe at
-    ///               startup only — no per-frame cost.
+    /// [PERFORMANCE] One map read + one map write per changed recipe at startup only.
     /// </summary>
-    static void ApplyRecipeData(Entity recipeEntity, RecipeEntry entry, PrefabGUID guid)
+    static void ApplyRecipeData(Entity recipeEntity, RecipeEntryData entry, PrefabGUID guid)
     {
-        // ── Write to prefab entity ────────────────────────────
         var data = recipeEntity.Read<RecipeData>();
 
         if (entry.CraftDuration.HasValue)       data.CraftDuration        = entry.CraftDuration.Value;
@@ -198,7 +189,6 @@ public static class RecipeSystem
 
         recipeEntity.Write(data);
 
-        // ── Write directly into RecipeHashLookupMap ───────────
         var map = Heart.GameDataSystem.RecipeHashLookupMap;
         if (map.TryGetValue(guid, out var mapEntry))
         {
@@ -220,7 +210,9 @@ public static class RecipeSystem
         }
     }
 
-    static void ApplyRequirements(Entity recipeEntity, List<RecipeRequirement> requirements, string recipeName)
+    // [CHANGED] Parameter type: List<CookbookItemData> — our config DTO.
+    //           Buffer type: RecipeRequirementBuffer — V Rising ECS type, unchanged.
+    static void ApplyRequirements(Entity recipeEntity, List<CookbookItemData> requirements, string recipeName)
     {
         if (!recipeEntity.TryGetBuffer<RecipeRequirementBuffer>(out var buffer))
             buffer = recipeEntity.AddBuffer<RecipeRequirementBuffer>();
@@ -240,7 +232,9 @@ public static class RecipeSystem
         }
     }
 
-    static void ApplyOutputs(Entity recipeEntity, List<RecipeOutput> outputs, string recipeName)
+    // [CHANGED] Parameter type: List<CookbookItemData> — our config DTO.
+    //           Buffer type: RecipeOutputBuffer — V Rising ECS type, unchanged.
+    static void ApplyOutputs(Entity recipeEntity, List<CookbookItemData> outputs, string recipeName)
     {
         if (!recipeEntity.TryGetBuffer<RecipeOutputBuffer>(out var buffer))
             buffer = recipeEntity.AddBuffer<RecipeOutputBuffer>();
@@ -284,35 +278,46 @@ public static class RecipeSystem
         applyAction(recipeEntity, list, recipeName);
     }
 
+    // [CHANGED] Type checks updated to List<CookbookItemData> for repair costs
+    //           and unit outputs. ECS buffer types are V Rising types — unchanged.
     static void RemoveBuffer<T>(Entity recipeEntity, string recipeName) where T : class
     {
-        if (typeof(T) == typeof(List<RecipeRepairCost>))
+        if (typeof(T) == typeof(List<CookbookItemData>))
         {
+            // Ambiguous — could be repair costs or unit outputs.
+            // Check which buffer exists and remove it.
             if (recipeEntity.Has<ItemRepairBuffer>())
+            {
                 recipeEntity.Remove<ItemRepairBuffer>();
-            else
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{recipeName}] ItemRepairBuffer already absent, nothing to remove.");
-        }
-        else if (typeof(T) == typeof(List<RecipeUnitOutput>))
-        {
-            if (recipeEntity.Has<RecipeOutputUnitBuffer>())
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] Removed ItemRepairBuffer.");
+            }
+            else if (recipeEntity.Has<RecipeOutputUnitBuffer>())
+            {
                 recipeEntity.Remove<RecipeOutputUnitBuffer>();
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] Removed RecipeOutputUnitBuffer.");
+            }
             else
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{recipeName}] RecipeOutputUnitBuffer already absent, nothing to remove.");
+            {
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] Buffer already absent, nothing to remove.");
+            }
         }
         else if (typeof(T) == typeof(List<string>))
         {
             if (recipeEntity.Has<RecipeLinkBuffer>())
+            {
                 recipeEntity.Remove<RecipeLinkBuffer>();
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] Removed RecipeLinkBuffer.");
+            }
             else
-                HeartLogger.Info(LOG_SOURCE,
-                    $"[{recipeName}] RecipeLinkBuffer already absent, nothing to remove.");
+            {
+                HeartLogger.Info(LOG_SOURCE, $"[{recipeName}] RecipeLinkBuffer already absent, nothing to remove.");
+            }
         }
     }
 
-    static void ApplyRepairCosts(Entity recipeEntity, List<RecipeRepairCost> repairCosts, string recipeName)
+    // [CHANGED] Parameter type: List<CookbookItemData> — consolidated from RecipeRepairCost.
+    //           Buffer type: ItemRepairBuffer — V Rising ECS type, unchanged.
+    static void ApplyRepairCosts(Entity recipeEntity, List<CookbookItemData> repairCosts, string recipeName)
     {
         if (!recipeEntity.TryGetBuffer<ItemRepairBuffer>(out var buffer))
             buffer = recipeEntity.AddBuffer<ItemRepairBuffer>();
@@ -332,7 +337,10 @@ public static class RecipeSystem
         }
     }
 
-    static void ApplyUnitOutputs(Entity recipeEntity, List<RecipeUnitOutput> unitOutputs, string recipeName)
+    // [CHANGED] Parameter type: List<CookbookItemData> — consolidated from RecipeUnitOutput.
+    //           'Unit' field renamed to 'Item' in CookbookItemData.
+    //           Buffer type: RecipeOutputUnitBuffer — V Rising ECS type, unchanged.
+    static void ApplyUnitOutputs(Entity recipeEntity, List<CookbookItemData> unitOutputs, string recipeName)
     {
         if (!recipeEntity.TryGetBuffer<RecipeOutputUnitBuffer>(out var buffer))
             buffer = recipeEntity.AddBuffer<RecipeOutputUnitBuffer>();
@@ -341,10 +349,10 @@ public static class RecipeSystem
 
         foreach (var unit in unitOutputs)
         {
-            if (!PrefabNameResolver.TryResolve(unit.Unit, out PrefabGUID unitGuid))
+            if (!PrefabNameResolver.TryResolve(unit.Item, out PrefabGUID unitGuid))
             {
                 HeartLogger.Warning(LOG_SOURCE,
-                    $"[{recipeName}] Could not resolve unit output: '{unit.Unit}', skipping.");
+                    $"[{recipeName}] Could not resolve unit output: '{unit.Item}', skipping.");
                 continue;
             }
 

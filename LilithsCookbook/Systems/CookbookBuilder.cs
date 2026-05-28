@@ -4,21 +4,40 @@ using ProjectM;
 using Unity.Entities;
 using LilithsHeart.Config;
 using LilithsHeart.Foundation;
+using LilithsHeart.Services;
 using LilithsCookbook.Config;
 using LilithsCookbook.Data;
 
 namespace LilithsCookbook.Systems;
 
-public static class CookbookGenerator
-{
-    private const string LOG_SOURCE = "LilithsCookbook.CookbookGenerator";
+// ============================================================
+//  CookbookBuilder — LilithsCookbook
+//
+//  Generates JSON config files from ECS data and writes
+//  example files for admins.
+//
+//  [CHANGED] Renamed from CookbookGenerator → CookbookBuilder
+//            to match the Builder suffix naming convention.
+//
+//  [CHANGED] RecipeEntry → RecipeEntryData, StationEntry →
+//            StationEntryData following naming convention.
+//
+//  [CHANGED] RecipeRequirement, RecipeOutput, RecipeRepairCost,
+//            RecipeUnitOutput consolidated into CookbookItemData.
+//            ECS buffer types (RecipeRequirementBuffer etc.) are
+//            unchanged — those are V Rising game types, not ours.
+//
+//  [PERFORMANCE] GenerateAllRecipesIfRequested() runs once at
+//                startup only when explicitly enabled in config.
+//                No per-frame cost.
+// ============================================================
 
-    // All suite config lives under BepInEx/config/LilithsHeart/ — child
-    // modules do not create their own subfolder. Recipes and Stations are
-    // category directories directly under the Heart root, consistent with
-    // how Localization/ and Names/ are structured.
-    public static readonly string RecipesDir  = HeartPaths.DataDir("Recipes");
-    public static readonly string StationsDir = HeartPaths.DataDir("Stations");
+public static class CookbookBuilder
+{
+    private const string LOG_SOURCE = "LilithsCookbook.CookbookBuilder";
+
+    public static readonly string RecipesDir  = HeartPathIndex.DataDir("Recipes");
+    public static readonly string StationsDir = HeartPathIndex.DataDir("Stations");
 
     static readonly string ExampleRecipesPath  = Path.Combine(RecipesDir,  "example-recipes.json");
     static readonly string ExampleStationsPath = Path.Combine(StationsDir, "example-stations.json");
@@ -54,10 +73,6 @@ public static class CookbookGenerator
     /// If GenerateAllRecipes is enabled in CookbookConfig, iterates all entries in
     /// GameDataSystem.RecipeHashLookupMap, serializes their current vanilla state to
     /// all-recipes.json, then disables the setting so it does not run on next boot.
-    ///
-    /// We use RecipeHashLookupMap instead of iterating the full PrefabGuidToEntityMap
-    /// because the prefab map contains all entity types and HasComponent checks on
-    /// non-recipe entities are unreliable in this context.
     /// </summary>
     public static void GenerateAllRecipesIfRequested()
     {
@@ -68,11 +83,7 @@ public static class CookbookGenerator
         try
         {
             var recipeMap = Heart.GameDataSystem.RecipeHashLookupMap;
-            var entries   = new Dictionary<string, RecipeEntry>(recipeMap.Count());
-
-            // RecipeHashLookupMap returns RecipeData directly (not Entity).
-            // Use it to enumerate known recipe GUIDs and read scalar data.
-            // Look up Entity separately via PrefabGuidToEntityMap for buffer access.
+            var entries   = new Dictionary<string, RecipeEntryData>(recipeMap.Count());
             var prefabMap = Heart.PrefabCollectionSystem._PrefabGuidToEntityMap;
 
             foreach (var kvp in recipeMap)
@@ -82,30 +93,29 @@ public static class CookbookGenerator
                 if (!PrefabNameResolver.TryResolveName(kvp.Key, out string recipeName))
                     recipeName = kvp.Key.GuidHash.ToString();
 
-                var entry = new RecipeEntry { ChangesEnabled = false };
+                var entry = new RecipeEntryData { ChangesEnabled = false };
 
-                // Read scalar fields directly from the RecipeData struct.
                 entry.CraftDuration        = recipeData.CraftDuration;
                 entry.AlwaysUnlocked       = recipeData.AlwaysUnlocked;
                 entry.HideInStation        = recipeData.HideInStation;
                 entry.IgnoreServerSettings = recipeData.IgnoreServerSettings;
                 entry.HudSortingOrder      = recipeData.HudSortingOrder;
 
-                // Look up Entity for buffer access. If not found, record scalar data only.
                 if (!prefabMap.TryGetValue(kvp.Key, out Entity entity))
                 {
                     entries[recipeName] = entry;
                     continue;
                 }
 
+                // RecipeRequirementBuffer — V Rising ECS type, not renamed.
                 if (entity.TryGetBuffer<RecipeRequirementBuffer>(out var reqBuffer) && reqBuffer.Length > 0)
                 {
-                    entry.Requirements = new List<RecipeRequirement>(reqBuffer.Length);
+                    entry.Requirements = new List<CookbookItemData>(reqBuffer.Length);
                     for (int i = 0; i < reqBuffer.Length; i++)
                     {
                         var req = reqBuffer[i];
                         PrefabNameResolver.TryResolveName(req.Guid, out string itemName);
-                        entry.Requirements.Add(new RecipeRequirement
+                        entry.Requirements.Add(new CookbookItemData
                         {
                             Item   = string.IsNullOrEmpty(itemName) ? req.Guid._Value.ToString() : itemName,
                             Amount = req.Amount
@@ -113,14 +123,15 @@ public static class CookbookGenerator
                     }
                 }
 
+                // RecipeOutputBuffer — V Rising ECS type, not renamed.
                 if (entity.TryGetBuffer<RecipeOutputBuffer>(out var outBuffer) && outBuffer.Length > 0)
                 {
-                    entry.Outputs = new List<RecipeOutput>(outBuffer.Length);
+                    entry.Outputs = new List<CookbookItemData>(outBuffer.Length);
                     for (int i = 0; i < outBuffer.Length; i++)
                     {
                         var output = outBuffer[i];
                         PrefabNameResolver.TryResolveName(output.Guid, out string itemName);
-                        entry.Outputs.Add(new RecipeOutput
+                        entry.Outputs.Add(new CookbookItemData
                         {
                             Item   = string.IsNullOrEmpty(itemName) ? output.Guid._Value.ToString() : itemName,
                             Amount = output.Amount
@@ -128,15 +139,16 @@ public static class CookbookGenerator
                     }
                 }
 
+                // ItemRepairBuffer — V Rising ECS type, not renamed.
                 if (entity.TryGetBuffer<ItemRepairBuffer>(out var repairBuffer) && repairBuffer.Length > 0)
                 {
                     entry.UseRepairCosts = true;
-                    entry.RepairCosts    = new List<RecipeRepairCost>(repairBuffer.Length);
+                    entry.RepairCosts    = new List<CookbookItemData>(repairBuffer.Length);
                     for (int i = 0; i < repairBuffer.Length; i++)
                     {
                         var cost = repairBuffer[i];
                         PrefabNameResolver.TryResolveName(cost.Guid, out string itemName);
-                        entry.RepairCosts.Add(new RecipeRepairCost
+                        entry.RepairCosts.Add(new CookbookItemData
                         {
                             Item   = string.IsNullOrEmpty(itemName) ? cost.Guid._Value.ToString() : itemName,
                             Amount = cost.Stacks
@@ -144,21 +156,23 @@ public static class CookbookGenerator
                     }
                 }
 
+                // RecipeOutputUnitBuffer — V Rising ECS type, not renamed.
                 if (entity.TryGetBuffer<RecipeOutputUnitBuffer>(out var unitBuffer) && unitBuffer.Length > 0)
                 {
-                    entry.UnitOutputs = new List<RecipeUnitOutput>(unitBuffer.Length);
+                    entry.UnitOutputs = new List<CookbookItemData>(unitBuffer.Length);
                     for (int i = 0; i < unitBuffer.Length; i++)
                     {
                         var unit = unitBuffer[i];
                         PrefabNameResolver.TryResolveName(unit.Guid, out string unitName);
-                        entry.UnitOutputs.Add(new RecipeUnitOutput
+                        entry.UnitOutputs.Add(new CookbookItemData
                         {
-                            Unit   = string.IsNullOrEmpty(unitName) ? unit.Guid._Value.ToString() : unitName,
+                            Item   = string.IsNullOrEmpty(unitName) ? unit.Guid._Value.ToString() : unitName,
                             Amount = unit.Stacks
                         });
                     }
                 }
 
+                // RecipeLinkBuffer — V Rising ECS type, not renamed.
                 if (entity.TryGetBuffer<RecipeLinkBuffer>(out var linkBuffer) && linkBuffer.Length > 0)
                 {
                     entry.RecipeLinks = new List<string>(linkBuffer.Length);
@@ -185,31 +199,22 @@ public static class CookbookGenerator
         }
         finally
         {
-            // Always reset the flag — even on failure — to prevent
-            // a failed generation from retrying on every subsequent boot.
             CookbookConfig.DisableGenerateAllRecipes();
         }
     }
 
     // ── Example file writers ──────────────────────────────────────────────────
 
-    // [CHANGED] Example now uses Recipe_Weapon_Sword_T01_Bone with a single
-    //           Blood Essence requirement — both prefabs are confirmed present
-    //           in LilithsMind so PrefabNameResolver resolves them correctly
-    //           on the server and RecipePatcher resolves them on the client.
-    //           ChangesEnabled = true so the change applies on boot.
-    //           Only Requirements is specified — all other fields (outputs,
-    //           craft duration, repair costs) keep their vanilla values.
     static void WriteExampleRecipes()
     {
         var data = new CookbookRecipeData
         {
-            Recipes = new Dictionary<string, RecipeEntry>
+            Recipes = new Dictionary<string, RecipeEntryData>
             {
-                ["Recipe_Weapon_Sword_T01_Bone"] = new RecipeEntry
+                ["Recipe_Weapon_Sword_T01_Bone"] = new RecipeEntryData
                 {
                     ChangesEnabled = true,
-                    Requirements = new List<RecipeRequirement>
+                    Requirements = new List<CookbookItemData>
                     {
                         new() { Item = "Item_BloodEssence_T01", Amount = 1 }
                     }
@@ -225,9 +230,9 @@ public static class CookbookGenerator
     {
         var data = new CookbookStationData
         {
-            Stations = new Dictionary<string, StationEntry>
+            Stations = new Dictionary<string, StationEntryData>
             {
-                ["TM_Blacksmith_Stations_Standard"] = new StationEntry
+                ["TM_Blacksmith_Stations_Standard"] = new StationEntryData
                 {
                     ChangesEnabled = false,
                     AddRecipes     = new List<string> { "Recipe_Weapon_Sword_T04_Copper_Reinforced" },

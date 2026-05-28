@@ -1,9 +1,9 @@
 // ============================================================
-//  HeartPaths — LilithsHeart
+//  HeartPathIndex — LilithsHeart
 //
 //  [CHANGED] Moved from LilithsHeart/ root → Config/.
 //            Namespace updated: LilithsHeart → LilithsHeart.Config.
-//            Any file referencing HeartPaths must add:
+//            Any file referencing HeartPathIndex must add:
 //                using LilithsHeart.Config;
 //
 //  Single source of truth for every filesystem path used by
@@ -26,23 +26,23 @@
 //            deleted. Prefab name resolution now uses LilithsMind definition
 //            classes directly at runtime — no JSON files are read or written.
 //
-//  Child modules should use HeartPaths to resolve all paths rather than
+//  Child modules should use HeartPathIndex to resolve all paths rather than
 //  building their own path strings. This keeps the layout consistent
 //  and refactorable from one place.
 //
 //  Usage in a child module's Plugin.Load():
 //
-//      var cfg = new ConfigFile(HeartPaths.ModuleConfig("LilithsCookbook"), saveOnInit: true);
+//      var cfg = new ConfigFile(HeartPathIndex.ModuleConfig("LilithsCookbook"), saveOnInit: true);
 //
 //  Usage for a data subfolder:
 //
-//      var recipesDir = HeartPaths.DataDir("Recipes");
+//      var recipesDir = HeartPathIndex.DataDir("Recipes");
 //
 // ============================================================
 
 namespace LilithsHeart.Config;
 
-public static class HeartPaths
+public static class HeartPathIndex
 {
     // ── Root ────────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ public static class HeartPaths
 
     /// <summary>
     /// Returns the path for a child module's .cfg file.
-    /// e.g. HeartPaths.ModuleConfig("LilithsCookbook")
+    /// e.g. HeartPathIndex.ModuleConfig("LilithsCookbook")
     ///      → BepInEx/config/LilithsHeart/LilithsCookbook.cfg
     ///
     /// Pass the result directly to: new ConfigFile(path, saveOnInit: true)
@@ -83,7 +83,7 @@ public static class HeartPaths
 
     /// <summary>
     /// Returns the path for a named data subdirectory.
-    /// e.g. HeartPaths.DataDir("Recipes")
+    /// e.g. HeartPathIndex.DataDir("Recipes")
     ///      → BepInEx/config/LilithsHeart/Recipes/
     ///
     /// The directory is NOT created here — call Directory.CreateDirectory()

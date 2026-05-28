@@ -155,7 +155,7 @@ public static class SyncReceiver
             return;
         }
 
-        var syncFile = SoulPaths.SyncFile(folderName);
+        var syncFile = SoulPathIndex.SyncFile(folderName);
         if (!File.Exists(syncFile))
         {
             SoulLogger.Info(LOG_SOURCE,
@@ -253,7 +253,7 @@ public static class SyncReceiver
 
     static void WriteToDiskIfChanged(ServerSyncPayload payload)
     {
-        var syncFile = SoulPaths.SyncFile(payload.ServerIdentity);
+        var syncFile = SoulPathIndex.SyncFile(payload.ServerIdentity);
 
         if (File.Exists(syncFile))
         {
@@ -278,7 +278,7 @@ public static class SyncReceiver
 
         try
         {
-            Directory.CreateDirectory(SoulPaths.ServerDir(payload.ServerIdentity));
+            Directory.CreateDirectory(SoulPathIndex.ServerDir(payload.ServerIdentity));
             File.WriteAllText(syncFile,
                 JsonSerializer.Serialize(payload,
                     new JsonSerializerOptions { WriteIndented = true }));

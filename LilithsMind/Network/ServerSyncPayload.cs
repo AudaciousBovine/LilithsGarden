@@ -74,7 +74,7 @@ public sealed class ServerSyncPayload
 
     /// <summary>
     /// Recipe data overrides keyed by recipe prefab name.
-    /// Soul patches RecipeData, RecipeRequirementBuffer, RecipeOutputBuffer
+    /// Soul patches RecipeData, CookbookItemData Buffer, CookbookItemData Buffer
     /// and RecipeHashLookupMap on client prefab entities from this dict.
     /// </summary>
     public Dictionary<string, LilithRecipeData> RecipeOverrides { get; set; } = new();

@@ -41,7 +41,7 @@ public class SoulPlugin : BasePlugin
             SoulLogger.Info("LilithsSoul",
                 $"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loading.");
 
-            var configFile = new ConfigFile(SoulPaths.CoreConfig, saveOnInit: true);
+            var configFile = new ConfigFile(SoulPathIndex.CoreConfig, saveOnInit: true);
             SoulConfig.Initialize(configFile);
 
             _harmony?.UnpatchSelf();

@@ -15,29 +15,12 @@
 //  RecipePatcher fixes this by patching the client's local prefab
 //  entities after receiving Heart's overrides on connect.
 //
-//  Name → GUID resolution:
-//  ────────────────────────
-//  Heart sends prefab names (strings) in the payload. The client
-//  resolves these via a name→GUID map built once at world ready
-//  from PrefabCollectionSystem._PrefabDataLookup.AssetName.
-//  This is the same data source LocalizationInjector uses for its
-//  display name lookup — no new ECS iteration needed beyond what
-//  Soul already does at world ready.
+//  [CHANGED] PatchRequirementBuffer and PatchOutputBuffer now
+//            iterate Dictionary<string, int> (prefab name → amount)
+//            matching the simplified LilithRecipeData structure.
 //
-//  PrefabCollectionSystem on the client exposes:
-//    _PrefabGuidToEntityMap  — PrefabGUID → Entity
-//    _PrefabDataLookup       — PrefabGUID → PrefabData (has AssetName)
-//  There is no _PrefabNameToGuidMap — we build our own from AssetName.
-//
-//  [CHANGED] PatchRequirementBuffer and PatchOutputBuffer now iterate
-//            Dictionary<string, int> (prefab name → amount) instead of
-//            List<LilithRecipeData> with Item/Amount fields, matching
-//            the simplified LilithRecipeData structure.
-//
-//  [PERFORMANCE] BuildNameMap() runs once at world ready — O(n) over
-//                all prefabs, same pass LocalizationInjector already
-//                does. Apply() iterates only overridden recipes.
-//                Buffer operations are O(n) per recipe slot.
+//  [PERFORMANCE] BuildNameMap() runs once at world ready — O(n).
+//                Apply() iterates only overridden recipes.
 //                No per-frame cost after initialization.
 // ============================================================
 
@@ -57,31 +40,10 @@ public static class RecipePatcher
 {
     private const string LOG_SOURCE = "LilithsSoul.RecipePatcher";
 
-    // Built once at world ready from PrefabCollectionSystem._PrefabDataLookup.
-    // Keyed by AssetName string (e.g. "Recipe_Weapon_Sword_T04_Copper_Reinforced").
-    // [PERFORMANCE] Dictionary<string, PrefabGUID> — O(1) lookup per recipe.
     static readonly Dictionary<string, PrefabGUID> _nameToGuid = new();
 
     // ── Public API ───────────────────────────────────────────
 
-    /// <summary>
-    /// Builds the prefab name → GUID lookup from two sources:
-    ///   1. PrefabCollectionSystem._PrefabDataLookup — keyed by AssetName
-    ///      (full prefab string, e.g. "Item_BloodEssence_T01")
-    ///   2. LilithsMind definition classes — also keyed by Name alias
-    ///      (short name, e.g. "BloodEssence")
-    ///
-    /// Both are needed because BuildSoulOverride() on the server uses
-    /// PrefabNameResolver.TryResolveName() which returns the LilithsMind
-    /// Name field (short alias) — so the client must be able to resolve
-    /// both forms to the same GUID.
-    ///
-    /// Called by SyncReceiver.NotifyWorldReady() once the client world is ready.
-    /// Safe to call multiple times — clears and rebuilds each time.
-    ///
-    /// [PERFORMANCE] O(n) over _PrefabDataLookup + O(m) over LilithsMind
-    ///               definitions — both run once at world ready only.
-    /// </summary>
     public static void BuildNameMap()
     {
         _nameToGuid.Clear();
@@ -89,16 +51,14 @@ public static class RecipePatcher
         var world = Soul.ClientWorld;
         if (world == null)
         {
-            SoulLogger.Warning(LOG_SOURCE,
-                "Client world not available — cannot build name→GUID map.");
+            SoulLogger.Warning(LOG_SOURCE, "Client world not available — cannot build name→GUID map.");
             return;
         }
 
         var prefabSystem = world.GetExistingSystemManaged<PrefabCollectionSystem>();
         if (prefabSystem == null)
         {
-            SoulLogger.Warning(LOG_SOURCE,
-                "PrefabCollectionSystem not found — cannot build name→GUID map.");
+            SoulLogger.Warning(LOG_SOURCE, "PrefabCollectionSystem not found — cannot build name→GUID map.");
             return;
         }
 
@@ -123,10 +83,6 @@ public static class RecipePatcher
         }
 
         // ── Pass 2: LilithsMind Name alias → GUID ────────────
-        // BuildSoulOverride() on the server uses TryResolveName() which
-        // returns the LilithsMind Name field (e.g. "BloodEssence") rather
-        // than the full Prefab string. We index those aliases here so both
-        // forms resolve to the same GUID on the client.
         var mindAssembly = typeof(LilithsMind.Prefabs.PrefabDef).Assembly;
 
         var definitionTypes = mindAssembly
@@ -160,15 +116,6 @@ public static class RecipePatcher
             $"(AssetName + LilithsMind aliases).");
     }
 
-    /// <summary>
-    /// Patches the client's own player entity WorkstationRecipesBuffer from
-    /// the received player recipe add/remove lists.
-    ///
-    /// Finds the local player's User entity by querying for entities with
-    /// both User and WorkstationRecipesBuffer components where IsConnected is true.
-    ///
-    /// [PERFORMANCE] One ECS query at connect time — no per-frame cost.
-    /// </summary>
     public static void ApplyPlayerRecipes(List<string> toAdd, List<string> toRemove)
     {
         if (toAdd.Count == 0 && toRemove.Count == 0)
@@ -222,11 +169,7 @@ public static class RecipePatcher
                     bool alreadyExists = false;
                     for (int i = 0; i < buffer.Length; i++)
                     {
-                        if (buffer[i].RecipeGuid.Equals(recipeGuid))
-                        {
-                            alreadyExists = true;
-                            break;
-                        }
+                        if (buffer[i].RecipeGuid.Equals(recipeGuid)) { alreadyExists = true; break; }
                     }
 
                     if (!alreadyExists)
@@ -269,13 +212,6 @@ public static class RecipePatcher
         }
     }
 
-    /// <summary>
-    /// Patches WorkstationRecipesBuffer on client-side prefab entities for
-    /// crafting stations.
-    ///
-    /// [PERFORMANCE] One prefab map lookup per station at connect time.
-    ///               No per-frame cost.
-    /// </summary>
     public static void ApplyStationRecipes(Dictionary<string, LilithStationData> overrides)
     {
         if (overrides.Count == 0)
@@ -294,8 +230,7 @@ public static class RecipePatcher
         var prefabSystem = world.GetExistingSystemManaged<PrefabCollectionSystem>();
         if (prefabSystem == null)
         {
-            SoulLogger.Error(LOG_SOURCE,
-                "PrefabCollectionSystem not found — cannot patch station recipes.");
+            SoulLogger.Error(LOG_SOURCE, "PrefabCollectionSystem not found — cannot patch station recipes.");
             return;
         }
 
@@ -381,13 +316,6 @@ public static class RecipePatcher
             $"Station recipe patching complete — {patched} station(s) patched, {failed} failed.");
     }
 
-    /// <summary>
-    /// Patches client prefab entities from the received recipe overrides.
-    /// Called by SyncReceiver.ApplyPayload() after LocalizationInjector.Inject().
-    /// Safe to call with an empty dict — exits immediately.
-    ///
-    /// [PERFORMANCE] Iterates only overridden recipes, not all prefabs.
-    /// </summary>
     public static void Apply(Dictionary<string, LilithRecipeData> overrides)
     {
         if (overrides.Count == 0)
@@ -406,8 +334,7 @@ public static class RecipePatcher
         var prefabSystem = world.GetExistingSystemManaged<PrefabCollectionSystem>();
         if (prefabSystem == null)
         {
-            SoulLogger.Error(LOG_SOURCE,
-                "PrefabCollectionSystem not found — cannot patch recipes.");
+            SoulLogger.Error(LOG_SOURCE, "PrefabCollectionSystem not found — cannot patch recipes.");
             return;
         }
 
@@ -466,7 +393,6 @@ public static class RecipePatcher
         LilithRecipeData data,
         GameDataSystem? gameDataSystem)
     {
-        // ── RecipeData component on prefab entity ─────────────
         if (em.HasComponent<RecipeData>(recipeEntity))
         {
             var recipeData = em.GetComponentData<RecipeData>(recipeEntity);
@@ -474,10 +400,6 @@ public static class RecipePatcher
             em.SetComponentData(recipeEntity, recipeData);
         }
 
-        // ── RecipeHashLookupMap ───────────────────────────────
-        // The client HUD reads CraftDuration from RecipeHashLookupMap,
-        // not from the prefab entity component. Write into both so the
-        // displayed timer matches what the server enforces.
         if (gameDataSystem != null)
         {
             var map = gameDataSystem.RecipeHashLookupMap;
@@ -488,16 +410,15 @@ public static class RecipePatcher
             }
         }
 
-        // ── RecipeRequirementBuffer ───────────────────────────
+        // RecipeRequirementBuffer — V Rising ECS type, not renamed.
         PatchRequirementBuffer(em, recipeEntity, recipeName, data.Requirements);
 
-        // ── RecipeOutputBuffer ────────────────────────────────
+        // RecipeOutputBuffer — V Rising ECS type, not renamed.
         PatchOutputBuffer(em, recipeEntity, recipeName, data.Outputs);
     }
 
-    // [CHANGED] Now iterates Dictionary<string, int> (prefab name → amount)
-    //           instead of List<LilithRecipeData> with Item/Amount fields.
-    //           The key is the prefab name, the value is the stack amount.
+    // [CHANGED] Iterates Dictionary<string, int> (prefab name → amount).
+    //           RecipeRequirementBuffer is a V Rising ECS type — not renamed.
     static void PatchRequirementBuffer(
         EntityManager em,
         Entity recipeEntity,
@@ -526,9 +447,8 @@ public static class RecipePatcher
         }
     }
 
-    // [CHANGED] Now iterates Dictionary<string, int> (prefab name → amount)
-    //           instead of List<LilithRecipeData> with Item/Amount fields.
-    //           The key is the prefab name, the value is the stack amount.
+    // [CHANGED] Iterates Dictionary<string, int> (prefab name → amount).
+    //           RecipeOutputBuffer is a V Rising ECS type — not renamed.
     static void PatchOutputBuffer(
         EntityManager em,
         Entity recipeEntity,
