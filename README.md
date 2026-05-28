@@ -2,7 +2,7 @@
 A modular V Rising mod suite
 
 
-
+```
 Naming Conventions:
 [*Patch] - Harmony patch that injects before or after game code
 [*Patcher] - Modifices ECS component Data
@@ -23,8 +23,8 @@ Naming Conventions:
 [*Sender] - Sends information over network
 [*System] - Recurring logic systems
 [*Loader] - Reads and merges data for use
-
-
+```
+```
 [LilithsMind]
     LilithsMind.csproj
     [Network]
@@ -36,7 +36,8 @@ Naming Conventions:
         PrefabDef.cs
         [Definitions]
             *Index.cs
-
+```
+```
 [LilithsHeart]
     LilithsHeart.csproj
     HeartPlugin.cs
@@ -63,7 +64,8 @@ Naming Conventions:
     [Services]
         LocalizationService.cs
         PrefabNameResolver.cs
-
+```
+```
 [LilithsSoul]
     LilithsSoul.csproj
     SoulPlugin.cs
@@ -83,7 +85,8 @@ Naming Conventions:
             LocalizationInjector.cs
             RecipePatcher.cs
             ServerRegistry.cs
-
+```
+```
 [LilithsCookbook]
     LilithsCookbook.csproj
     [Config]
@@ -97,3 +100,4 @@ Naming Conventions:
         CookbookLoader.cs
         RecipeSystem.cs
         StationSystem.cs
+```
