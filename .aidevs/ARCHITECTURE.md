@@ -4,17 +4,17 @@
 
 ```
 LilithsMind (pure C#, no game deps)
+    ├── Data/ItemAppearanceData.cs       — item appearance DTO
     ├── Prefabs/Definitions/*Index.cs    — static PrefabDef catalog
     ├── Network/*Payload.cs, *Data.cs    — shared DTOs
-    └── Resources/English.json           — localized text refs
           │
           ▼
 ┌──────────────────────────────────────────────┐
 │              LilithsHeart (server)             │
 │  Foundation/  Events/  Config/  Services/     │
-│  Network/     Patches/                        │
+│  Network/     Patches/  Modules/              │
 │  Plugin entry: HeartPlugin.cs                  │
-│  NuGet: VampireReferenceAssemblies, VCF        │
+│  NuGet: VRising.Unhollowed.Client, VCF         │
 └──────────────────────┬───────────────────────┘
                        │ BepInDependency
                        ▼
@@ -29,7 +29,7 @@ LilithsSoul (client, standalone)
     Foundation/    Services/    Config/
     Network/       Patches/
     Plugin entry: SoulPlugin.cs
-    NuGet: VRising.Unholyed.Client
+    NuGet: VRising.Unhollowed.Client
 ```
 
 ## Plugin GUIDs
@@ -40,34 +40,55 @@ LilithsSoul (client, standalone)
 | LilithsCookbook | `audaciousbovine.lilithscookbook` |
 | LilithsSoul | `audaciousbovine.lilithssoul` |
 
+---
+
 ## Heart Initialization Sequence
 
 ```
 HeartPlugin.Load()
   ├── HeartLogger.Initialize()
-  ├── HeartConfig.Initialize()         — reads LilithsHeart.cfg
+  ├── HeartConfig.Initialize()          — reads LilithsHeart.cfg
   ├── HeartEventBus.Initialize()
   ├── HeartModuleRegistry.Initialize()
   └── Harmony.PatchAll()
         │
-        ▼  (world loads)
-InitializationPatch.Postfix()          — hooks WarEventRegistrySystem
+        ▼  (world loads — WarEventRegistrySystem fires)
+InitializationPatch.Postfix()
   └── Heart.OnInitialize()
-        ├── PrefabNameResolver.Initialize()     — scans LilithsMind definitions via reflection
-        ├── LocalizationService.Initialize()    — reads localization/*.json
-        ├── Build baseline ServerSyncPayload (empty overrides)
+        ├── PrefabNameResolver.Initialize()
+        │     └── Scans LilithsMind definitions via reflection
+        │
+        ├── LocalizationService.Initialize()
+        │     └── RegisterDirectory(ItemsDir) — Heart registers Items/
+        │     └── Modules may register additional dirs before this fires
+        │     └── Scans all registered dirs recursively for *.json
+        │     └── Merges into LocalizationConfig (per-field, alphabetical)
+        │
+        ├── Build baseline TierBlobData[] (empty overrides)
+        │
         ├── _initialized = true
+        │
         ├── Fire OnInitialized event
         │     └── CookbookPlugin.OnHeartInitialized()
         │           ├── CookbookBuilder.GenerateAllRecipesIfRequested()
-        │           ├── CookbookLoader.LoadRecipes()
-        │           ├── CookbookLoader.LoadStations()
+        │           ├── CookbookLoader.LoadRecipes() / LoadStations()
         │           ├── RecipeSystem.ApplyChanges()
         │           └── StationSystem.ApplyChanges()
-        ├── Rebuild payload with accumulated overrides
+        │                 └── Heart.RegisterRecipeOverrides()
+        │                 └── Heart.RegisterStationRecipeChanges()
+        │                 └── Heart.RegisterPlayerRecipeChanges()
+        │
+        ├── Rebuild TierBlobData[] with accumulated overrides
+        │     └── SyncPayloadCache.Rebuild()
+        │           Critical  → ItemAppearanceOverrides (JSON→GZip→base64→chunks)
+        │           High      → RecipeOverrides + StationRecipeOverrides
+        │           Normal    → PlayerRecipesToAdd/Remove
+        │
         ├── HeartModuleRegistry.LogSummary()
         └── HeartEventBus.Publish(OnWorldReady)
 ```
+
+---
 
 ## Client Connect Sequence
 
@@ -77,93 +98,114 @@ Client connects to server
         └── ClientConnectPatch.Postfix()
               ├── Resolve userIndex from _NetEndPointToApprovedUserIndex
               ├── Read User + Character entities
-              └── SyncSender.SendSyncToClient(userEntity, characterEntity, userIndex)
-                    ├── Read CachedJson from SyncPayloadCache
-                    ├── Chunkify() — split into 450-char pieces
-                    ├── Send each chunk as ChatMessageServerEvent with prefix [[LG:N]]
-                    └── Send [[LG:end]] sentinel
+              └── SyncSender.EnqueueSyncTiers(userEntity, characterEntity, userIndex)
+                    └── For each TierBlobData (Critical first):
+                          SyncQueue.Enqueue(messages)
+
+Per-frame drain (SchedulerPatch on ServerBootstrapSystem.OnUpdate):
+  SyncQueue.HasPending → SyncQueue.Drain()
+    └── Creates ≤ChunksPerFrame(10) ChatMessageServerEvent entities per frame
+    └── Each entity includes SendEventToUser { UserIndex } for routing
 ```
+
+---
 
 ## Soul Initialization Sequence
 
 ```
 SoulPlugin.Load()
+  ├── SoulCoroutineHost.Register()      — IL2CPP MonoBehaviour registration
   ├── SoulLogger.Initialize()
   ├── SoulConfig.Initialize()
   └── Harmony.PatchAll()
         │
         ▼  (client world loads)
-ClientInitPatch.Postfix()             — hooks GameDataManager.OnUpdate
+ClientInitPatch.Postfix()               — hooks GameDataManager.OnUpdate
   └── SyncReceiver.NotifyWorldReady(connectionString)
         ├── LocalizationInjector.BuildLookupTable()
+        │     └── LilithsMind reflection → _nameToNameGuid, _nameToDescGuid
         ├── RecipePatcher.BuildNameMap()
+        │     └── PrefabCollectionSystem + LilithsMind → name→GUID
+        ├── IconPatcher.BuildSpriteMaps()
+        │     ├── LilithsMind reflection → _nameToPrefabGuid
+        │     ├── Icons/ recursive scan → _localFiles (filename→path, PNG only)
+        │     └── Resources.FindObjectsOfTypeAll<Sprite>() → _gameSprites
+        ├── ServerRegistry.Load()           — reads servers.json
         ├── TryPreApplyCachedSync(connectionString)
-        │     ├── ServerRegistry.Load() — reads servers.json
-        │     ├── Look up connectionString → folderName
-        │     ├── Read sync.json from disk
-        │     ├── Deserialize ServerSyncPayload
-        │     └── ApplyPayload() — UI race condition fix
-        └── If pendingPayload: ApplyPayload()
-
-ClientChatSystemPatch.Prefix()        — per-frame
-  └── For each ChatMessageServerEvent.System:
-        ├── SyncReceiver.TryHandleMessage()
-        │     ├── [[LG:N]] → accumulate chunk
-        │     ├── [[LG:end]] → ProcessAccumulatedChunks()
-        │     │     ├── Concat chunks, deserialize
-        │     │     ├── WriteToDiskIfChanged()
-        │     │     └── ApplyPayload()
-        └── If consumed → DestroyEntity (hides from chat UI)
+        │     └── Look up connectionString → folderName
+        │     └── Read sync.json from disk
+        │     └── ApplyPayload()  — BEFORE CharacterHUD builds
+        └── If pendingPayload → ApplyPayload()
 ```
 
-## Payload Application Order
+---
+
+## Payload Application Order (FIXED — DO NOT REORDER)
 
 ```
-ApplyPayload(ServerSyncPayload)
-  1. LocalizationInjector.Inject(payload)
-     └── ClearPrevious() — LoadDefaultLanguage()
-     └── Write DisplayNameOverrides → Localization._LocalizedStrings
-     └── Write TooltipOverrides → Localization._LocalizedStrings
-  2. RecipePatcher.Apply(payload.RecipeOverrides)
-     └── For each recipe: Patch RecipeData, RecipeHashLookupMap,
-                           RecipeRequirementBuffer, RecipeOutputBuffer
-  3. RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides)
-     └── For each station: Add/Remove WorkstationRecipesBuffer entries
-  4. RecipePatcher.ApplyPlayerRecipes(payload.PlayerRecipesToAdd, ...)
-     └── Patch local player User entity WorkstationRecipesBuffer
+ApplyPayload(ServerSyncPayload):
+  1. LocalizationInjector.Inject(payload)    — text into _LocalizedStrings
+  2. IconPatcher.ClearPrevious()             — restore original icons
+  3. IconPatcher.Apply(payload)              — sprites into ManagedItemData.Icon
+  4. RecipePatcher.Apply(...)                — recipe ECS data
+  5. RecipePatcher.ApplyStationRecipes(...)  — station buffers
+  6. RecipePatcher.ApplyPlayerRecipes(...)   — player buffer last
 ```
 
-## Config File Layout (Server)
+---
+
+## LocalizationService Directory Registration Pattern
 
 ```
-BepInEx/config/LilithsHeart/
-  ├── LilithsHeart.cfg           — DebugLogging, ServerName
-  ├── LilithsCookbook.cfg        — GenerateAllRecipes
-  ├── Localization/              — *.json display name/tooltip overrides
-  ├── Recipes/                   — *.json recipe config files
-  └── Stations/                  — *.json station config files
+// Heart registers its own directory at init:
+LocalizationService.RegisterDirectory(HeartPathIndex.ItemsDir);
+
+// Future modules register theirs in Load() or OnHeartInitialized():
+LocalizationService.RegisterDirectory(HeartPathIndex.DataDir("MainQuest"));  // Machinations
+LocalizationService.RegisterDirectory(HeartPathIndex.DataDir("Spells"));     // Grimoire
+
+// Each directory scanned recursively — admins organize freely:
+Items/
+    Currencies/blood-essence.json
+    Weapons/swords.json
+    items.json
 ```
 
-## Config File Layout (Client)
-
-```
-BepInEx/config/LilithsSoul/
-  ├── LilithsSoul.cfg            — DebugLogging
-  ├── servers.json               — connection string → folder name mapping
-  └── <ServerIdentity>/sync.json — cached ServerSyncPayload per server
-```
+---
 
 ## Module Registration Pattern
 
-Child modules (like Cookbook) register with HeartModuleRegistry in their `Load()`:
-
 ```csharp
+// In child module Load():
 HeartModuleRegistry.Register(new HeartModuleData
 {
     ModuleId   = "audaciousbovine.lilithscookbook",
     ModuleName = "LilithsCookbook",
     Version    = "0.1.0",
 });
+Heart.OnInitialized += OnHeartInitialized;
+
+// In OnHeartInitialized():
+// Apply ECS changes, then register overrides:
+Heart.RegisterRecipeOverrides(overrides);
+Heart.RegisterStationRecipeChanges(name, toAdd, toRemove);
 ```
 
-They subscribe to `Heart.OnInitialized` to apply changes after Heart is ready, then call Heart's `Register*()` methods to queue overrides for the sync payload.
+## Module Contract
+
+A child module must:
+1. Reference `LilithsHeart.csproj` via `ProjectReference`
+2. Declare `[BepInDependency("audaciousbovine.lilithsheart")]`
+3. In `Load()`: create config via `HeartPathIndex.ModuleConfig()`, register with `HeartModuleRegistry`, subscribe to `Heart.OnInitialized`
+4. In `OnHeartInitialized()`: apply ECS changes, call `Heart.Register*()` methods
+5. Fully qualify `MyPluginInfo` as `YourModule.MyPluginInfo` (avoids namespace conflict with Heart)
+
+## SyncTier Assignment Guide
+
+| Tier | Value | Use for |
+|------|-------|---------|
+| Critical | 0 | ItemAppearanceOverrides — must arrive before UI builds |
+| High | 1 | RecipeOverrides + StationRecipeOverrides |
+| Normal | 2 | PlayerRecipesToAdd/Remove |
+| Low | 3 | Quest names/text (Machinations), spell names (Grimoire) |
+| Background | 4 | Large data sets — horse breeding (Menagerie), bounties (Bounty) |

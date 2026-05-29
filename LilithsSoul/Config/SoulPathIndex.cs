@@ -1,5 +1,6 @@
 // ============================================================
 //  SoulPathIndex — LilithsSoul
+//  LilithsSoul/Config/SoulPathIndex.cs
 //
 //  Single source of truth for every filesystem path used by
 //  LilithsSoul and its child client modules.
@@ -10,15 +11,24 @@
 //  Structure:
 //      LilithsSoul/
 //          LilithsSoul.cfg                 ← Soul core settings
+//          servers.json                    ← connection string → folder name map
+//          Icons/                          ← custom PNG icons + URL download cache
+//              vitae.png
+//              Weapons/
+//                  bone-sword.png
 //          <ServerIdentity>/
 //              sync.json                   ← cached ServerSyncPayload per server
+//
+//  [CHANGED] Added IconsDir.
+//            Soul's IconPatcher scans this directory recursively
+//            for *.png files, building a filename → full path lookup.
+//            URL downloads are also saved here (flat, no subfolder)
+//            so they are found on subsequent connects without
+//            re-downloading.
 //
 //  ServerIdentity is the sanitized server name received in the
 //  ServerSyncPayload. Each server the client connects to gets
 //  its own subfolder so configs don't collide.
-//
-//  Unlike HeartPathIndex (which is flat for child modules), Soul uses
-//  per-server subfolders because the data IS per-server by design.
 // ============================================================
 
 namespace LilithsSoul.Config;
@@ -42,6 +52,19 @@ public static class SoulPathIndex
     /// BepInEx/config/LilithsSoul/LilithsSoul.cfg
     /// </summary>
     public static readonly string CoreConfig = Path.Combine(Root, "LilithsSoul.cfg");
+
+    // ── Shared data ─────────────────────────────────────────
+
+    /// <summary>
+    /// BepInEx/config/LilithsSoul/Icons/
+    /// Custom PNG icon files placed by the client operator, plus
+    /// any icons downloaded from URLs advertised by the server.
+    /// Scanned recursively by IconPatcher — admins can organize
+    /// into subdirectories freely (e.g. Icons/Weapons/, Icons/Currencies/).
+    /// Matched by filename without extension (e.g. "vitae" matches "vitae.png"
+    /// anywhere under this directory). First alphabetical match wins on collision.
+    /// </summary>
+    public static readonly string IconsDir = Path.Combine(Root, "Icons");
 
     // ── Per-server data ─────────────────────────────────────
 

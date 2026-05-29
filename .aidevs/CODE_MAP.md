@@ -5,7 +5,7 @@
 | File | Purpose |
 |------|---------|
 | `LilithsGarden.sln` | Visual Studio solution referencing 4 projects |
-| `Directory.Build.props` | Shared MSBuild properties (net6.0, C# 12, nullable, BepInEx packages) |
+| `Directory.Build.props` | Shared MSBuild properties (net6.0, C# 12, nullable, VRising.Unhollowed.Client) |
 | `global.json` | Pins .NET SDK to 8.0.421 |
 | `README.md` | Project description + naming conventions |
 
@@ -18,6 +18,12 @@
 | File | Purpose |
 |------|---------|
 | `LilithsMind.csproj` | Project file, no NuGet refs, version 0.1.0 |
+
+### Data/
+
+| File | Class | Purpose |
+|------|-------|---------|
+| `ItemAppearanceData.cs` | `ItemAppearanceData` | DTO with optional `DisplayName`, `Tooltip`, `Icon` fields. Value type in `ServerSyncPayload.ItemAppearanceOverrides`. Icon value is self-describing: filename → local PNG, sprite name → in-game sprite, https:// → URL download. |
 
 ### Prefabs/
 
@@ -56,18 +62,8 @@
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `ServerSyncPayload.cs` | `ServerSyncPayload` | Full data contract sent on connect: identity, localization overrides, recipe overrides, station overrides, player recipe changes |
-| `ServerEventPayload.cs` | `ServerEventPayload`, `EventKind` | Trigger-based in-session payload. EventKind uses reserved ranges (Core 0-99, Cookbook 100-199, Bounty 200-299, Treasury 300-399, Machinations 400-499) |
-| `LilithRecipeData.cs` | `LilithRecipeData` | DTO: CraftDuration, Requirements (Dictionary<string,int>), Outputs (Dictionary<string,int>) |
-| `LilithStationData.cs` | `LilithStationData` | DTO: RecipesToAdd (List<string>), RecipesToRemove (List<string>) |
-
-### Resources/
-
-| File | Purpose |
-|------|---------|
-| `English.json` | V Rising localized text strings (33K+ lines) — reference for NameKey/DescKey GUIDs |
-| `unused/` | Placeholder |
-| `Unsorted/` | Placeholder |
+| `ServerSyncPayload.cs` | `ServerSyncPayload` | Full data contract: identity, hash, `ItemAppearanceOverrides: Dictionary<string, ItemAppearanceData>` (replaces separate DisplayName/Tooltip dicts), recipe overrides, station overrides, player recipe changes. |
+| `ServerEventPayload.cs` | `ServerEventPayload`, `EventKind` | Trigger-based in-session payload. Reserved — not yet implemented. |
 
 ---
 
@@ -77,54 +73,63 @@
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `HeartPlugin.cs` | `HeartPlugin : BasePlugin` | BepInEx entry point — Load() initializes config/eventbus/registry/Harmony, Unload() tears down |
-| `LilithsHeart.csproj` | — | Net6.0, references Mind, VampireReferenceAssemblies, VCF |
+| `HeartPlugin.cs` | `HeartPlugin : BasePlugin` | BepInEx entry point. Initializes logger, config, event bus, module registry, Harmony patches. |
+| `LilithsHeart.csproj` | — | Net6.0, references Mind, VRising.Unhollowed.Client, VCF |
 
 ### Foundation/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `Heart.cs` | `Heart` | **Central server access point.** Static class: provides `EntityManager`, `PrefabCollectionSystem`, `GameDataSystem`. Manages initialization lifecycle, pending override dictionaries, module registration API (`RegisterRecipeOverrides`, `RegisterStationRecipeChanges`, `RegisterPlayerRecipeChanges`). |
-| `HeartLogger.cs` | `HeartLogger` | Static logging wrapper around `ManualLogSource`. `Debug()` short-circuits when `HeartConfig.IsDebug` is false. |
-| `EntityExtensions.cs` | `EntityExtensions` | Extension methods on `Entity`: `With<T>()`, `Read<T>()`, `Write<T>()`, `Has<T>()`, `Add<T>()`, `Remove<T>()`, `ReadBuffer<T>()`, `AddBuffer<T>()`, `TryGetBuffer<T>()`, `TryGetComponent<T>()`. |
-| `HeartModuleData.cs` | `HeartModuleData` | Module metadata: ModuleId, ModuleName, Version, Capabilities (string[]). Passed to `HeartModuleRegistry.Register()`. |
-| `HeartModuleRegistry.cs` | `HeartModuleRegistry` | In-memory dictionary `_modules` keyed by ModuleId. Methods: `Register()`, `IsLoaded()`, `GetModule()`, `GetAllModules()`, `LogSummary()`. Event: `OnModuleRegistered`. |
+| `Heart.cs` | `Heart` | Server world access, ECS system accessors, module registration API. Fires `OnInitialized` and `OnWorldReady`. |
+| `HeartLogger.cs` | `HeartLogger` | Server logging wrapper. |
+| `EntityExtensions.cs` | `EntityExtensions` | Fluent ECS extension methods using `Heart.EntityManager`. |
 
 ### Events/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `HeartEventIndex.cs` | `OnWorldReady`, `OnWorldDestroyed` | Event struct definitions — fired when ECS world is ready/being torn down |
-| `HeartEventBus.cs` | `HeartEventBus` | Generic pub/sub event bus. Thread-safe via lock. Supports `Subscribe<T>`, `SubscribeOnce<T>`, `Unsubscribe<T>`, `Publish<T>`. Snapshot dispatch for safe subscribe/unsubscribe during handlers. |
+| `HeartEventBus.cs` | `HeartEventBus` | Type-safe pub/sub event bus. Thread-safe via lock. Snapshot dispatch. |
+| `HeartEventIndex.cs` | `OnWorldReady` | Event types published by Heart. |
+
+### Modules/
+
+| File | Class | Purpose |
+|------|-------|---------|
+| `HeartModuleRegistry.cs` | `HeartModuleRegistry` | Runtime registry of loaded child modules. `Register()`, `LogSummary()`. |
+| `HeartModuleData.cs` | `HeartModuleData` | Module identity: `ModuleId`, `ModuleName`, `Version`. |
 
 ### Patches/
 
 | File | Class | Purpose |
 |------|-------|---------|
 | `InitializationPatch.cs` | `InitializationPatch` | Harmony postfix on `WarEventRegistrySystem.RegisterWarEventEntities`. Single-fire — calls `Heart.OnInitialize()`. |
-| `ClientConnectPatch.cs` | `ClientConnectPatch` | Harmony postfix on `ServerBootstrapSystem.OnUserConnected`. Resolves user from `_NetEndPointToApprovedUserIndex`, reads User + Character entities, calls `SyncSender.SendSyncToClient()`. |
+| `ClientConnectPatch.cs` | `ClientConnectPatch` | Harmony postfix on `ServerBootstrapSystem.OnUserConnected`. Resolves User + Character entities + userIndex, calls `SyncSender.EnqueueSyncTiers()`. |
+| `SchedulerPatch.cs` | `SchedulerPatch` | Harmony postfix on `ServerBootstrapSystem.OnUpdate`. Per-frame drain of `SyncQueue` at `ChunksPerFrame` rate. Fast-path: single `HasPending` bool check when idle. |
 
 ### Network/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `SyncSender.cs` | `SyncSender` | Chunks cached JSON into 450-char messages with `[[LG:N]]` prefix, sends as `ChatMessageServerEvent` with `ServerChatMessageType.System`. Ends with `[[LG:end]]`. Uses `SendEventToUser` for routing. |
-| `SyncPayloadCache.cs` | `SyncPayloadCache` | Builds `ServerSyncPayload` DTO, populates from Heart's pending override dictionaries + `LocalizationConfig`, serializes to JSON with SHA256 hash prefix. `Rebuild()` called twice (baseline + after modules register). |
+| `SyncTierEnum.cs` | `SyncTierEnum` | Priority tiers: `Critical(0)`, `High(1)`, `Normal(2)`, `Low(3)`, `Background(4)`. Lower = higher priority = sent first. |
+| `TierBlobData.cs` | `TierBlobData` | Pre-built chunk data for one tier: `Tier`, `Chunks[]` (base64+gzip strings), `ChunkCount`, `Checksum`. Immutable after construction. |
+| `SyncQueue.cs` | `SyncQueue` | Thread-safe FIFO queue of pending client sends. `Enqueue()` on connect, `Drain()` each frame. `ChunksPerFrame = 10`. |
+| `SyncSender.cs` | `SyncSender` | `EnqueueSyncTiers()` builds tier messages from `TierBlobData`, enqueues into `SyncQueue`. `SendQueuedChunk()` creates one `ChatMessageServerEvent` entity with `SendEventToUser`. Protocol: `[[LG:begin:T:N:CKSUM]]` / `[[LG:T:NNNN]]<chunk>` / `[[LG:end:T:CKSUM]]`. |
+| `SyncPayloadCache.cs` | `SyncPayloadCache` | Builds `TierBlobData[]` per tier. JSON → GZip → base64 → 440-char chunks. Critical always built; High/Normal only if data exists. `GetAllTierBlobs()` returns cached array O(1). `Rebuild()` called twice at startup. |
 
 ### Services/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `PrefabNameResolver.cs` | `PrefabNameResolver` | Scans LilithsMind definition classes via reflection at startup. Builds 3 dictionaries: `_nameToGuid`, `_prefabToGuid`, `_guidToName`. Provides `TryResolve(name)` and `TryResolveName(guid)`. |
-| `LocalizationService.cs` | `LocalizationService` | Owns the loading pipeline for localization overrides. Reads all `*.json` from `Localization/` directory, merges into `LocalizationConfig`. Supports `Reload()`. Example file generation is opt-in via `HeartConfig.GenerateLocalizationExample`. |
+| `PrefabNameResolver.cs` | `PrefabNameResolver` | Scans LilithsMind definitions via reflection. Builds `_nameToGuid`, `_prefabToGuid`, `_guidToName`. Provides `TryResolve()`, `TryResolveName()`. |
+| `LocalizationService.cs` | `LocalizationService` | Central localization loader. Multiple registered directories via `RegisterDirectory()`. Each dir scanned recursively for `*.json`, merged alphabetically into `LocalizationConfig`. Supports `Reload()`. Heart registers `ItemsDir`; future modules register their own dirs (MainQuest/, Spells/, etc.). |
 
 ### Config/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `HeartConfig.cs` | `HeartConfig` | BepInEx config bindings: `DebugLogging` (bool), `ServerName` (string), `GenerateLocalizationExample` (bool). No Lazy<T> wrappers — `ConfigEntry<T>.Value` already caches. |
-| `HeartPathIndex.cs` | `HeartPathIndex` | Filesystem paths: `Root` (BepInEx/config/LilithsHeart/), `CoreConfig`, `LocalizationDir`, `ModuleConfig()`, `DataDir()`. |
-| `LocalizationConfig.cs` | `LocalizationConfig` | **Pure data surface** — holds merged display name/tooltip overrides in two dictionaries. Loading logic lives in `LocalizationService`. Provides `GetDisplayName()`, `GetTooltip()`. Internal mutators: `Clear()`, `AddDisplayName()`, `AddTooltip()`, `MarkLoaded()`. |
+| `HeartConfig.cs` | `HeartConfig` | `DebugLogging` (bool), `ServerName` (string), `GenerateLocalizationExample` (bool). |
+| `HeartPathIndex.cs` | `HeartPathIndex` | `Root`, `CoreConfig`, `ItemsDir` (replaces `LocalizationDir`), `ModuleConfig()`, `DataDir()`. |
+| `LocalizationConfig.cs` | `LocalizationConfig` | Pure data surface — `Dictionary<string, ItemAppearanceData>`. Per-field merge via `AddOverride()` (later file wins per field, not per entry). `Clear()`, `MarkLoaded()`. |
 
 ---
 
@@ -134,31 +139,31 @@
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `CookbookPlugin.cs` | `CookbookPlugin : BasePlugin` | BepInEx entry point. Loads config, registers with HeartModuleRegistry, subscribes to `Heart.OnInitialized`. Stores static `RecipeData` and `StationData`. |
+| `CookbookPlugin.cs` | `CookbookPlugin : BasePlugin` | BepInEx entry point. Loads config, registers with HeartModuleRegistry, subscribes to `Heart.OnInitialized`. |
 | `LilithsCookbook.csproj` | — | Net6.0, references Heart + Mind, VampireReferenceAssemblies, VCF |
 
 ### Systems/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `RecipeSystem.cs` | `RecipeSystem` | Applies recipe changes from config to server ECS prefabs + `RecipeHashLookupMap`. Builds `LilithRecipeData` overrides from applied state for Soul sync. Handles: RecipeData scalars, requirements, outputs, repair costs, unit outputs, recipe links. |
-| `StationSystem.cs` | `StationSystem` | Two-pass approach: (1) patch prefab entities, (2) after `RegisterGameData()` resets live WorkstationRecipesBuffer entities, patch live User + placed station entities via `CreateEntityQuery(Prefab + TileModel)`. Handles both `RefinementstationRecipesBuffer` and `WorkstationRecipesBuffer`. [PERFORMANCE] Targeted queries only — no full-entity scan. |
-| `CookbookLoader.cs` | `CookbookLoader` | Reads and merges all `*.json` files from Recipes/ and Stations/ directories. Later files win on key collision. |
-| `CookbookBuilder.cs` | `CookbookBuilder` | Writes example config files on first run. If `GenerateAllRecipes` enabled, dumps all vanilla recipes from `RecipeHashLookupMap` to `all-recipes.json`, then resets the flag. Renamed from `CookbookGenerator` to match Builder naming convention. |
+| `RecipeSystem.cs` | `RecipeSystem` | Applies recipe changes to server ECS. Builds `LilithRecipeData` overrides for Soul sync. |
+| `StationSystem.cs` | `StationSystem` | Two-pass: patch prefab entities, then patch live User + placed station entities after `RegisterGameData()`. |
+| `CookbookLoader.cs` | `CookbookLoader` | Reads and merges `*.json` from Recipes/ and Stations/. Later files win. |
+| `CookbookBuilder.cs` | `CookbookBuilder` | Example config generation. Vanilla recipe dump if `GenerateAllRecipes` enabled. |
 
 ### Data/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `CookbookItemData.cs` | `CookbookItemData` | **New** — single reusable item+amount DTO replacing `RecipeRequirement`, `RecipeOutput`, `RecipeRepairCost`, `RecipeUnitOutput`. Fields: `Item` (string), `Amount` (int). |
-| `CookbookRecipeData.cs` | `CookbookRecipeData`, `RecipeEntryData` | JSON-deserializable config DTOs. `RecipeEntryData` replaces `RecipeEntry`. Uses `CookbookItemData` for Requirements, Outputs, RepairCosts, UnitOutputs lists. |
-| `CookbookStationData.cs` | `CookbookStationData`, `StationEntryData` | JSON-deserializable config DTOs. `StationEntryData` replaces `StationEntry`. |
+| `CookbookItemData.cs` | `CookbookItemData` | `Item` (string) + `Amount` (int). |
+| `CookbookRecipeData.cs` | `CookbookRecipeData`, `RecipeEntryData` | JSON-deserializable recipe config DTOs. |
+| `CookbookStationData.cs` | `CookbookStationData`, `StationEntryData` | JSON-deserializable station config DTOs. |
 
 ### Config/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `CookbookConfig.cs` | `CookbookConfig` | `GenerateAllRecipes` (bool) flag. Includes `DisableGenerateAllRecipes()` auto-reset. |
+| `CookbookConfig.cs` | `CookbookConfig` | `GenerateAllRecipes` (bool) with auto-reset. |
 
 ---
 
@@ -168,41 +173,44 @@
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `SoulPlugin.cs` | `SoulPlugin : BasePlugin` | BepInEx entry point for client. Loads config, Harmony patches. |
-| `LilithsSoul.csproj` | — | Net6.0, references Mind, VRising.Unhollowed.Client (no VCF) |
+| `SoulPlugin.cs` | `SoulPlugin : BasePlugin` | BepInEx entry point. Calls `SoulCoroutineHost.Register()`, loads config, applies Harmony patches. |
+| `LilithsSoul.csproj` | — | Net6.0, references Mind, VRising.Unhollowed.Client |
 
 ### Foundation/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `Soul.cs` | `Soul` | Client-side mirror of Heart. Finds client world by name, provides `EntityManager`. Supports `Reset()` for disconnect. |
-| `SoulLogger.cs` | `SoulLogger` | Client logging wrapper — same pattern as HeartLogger |
-| `EntityExtensions.cs` | `EntityExtensions` | Same fluent ECS extension methods as Heart (uses Soul.EntityManager) |
+| `Soul.cs` | `Soul` | Client world access, `EntityManager` accessor, `Reset()` for disconnect. |
+| `SoulLogger.cs` | `SoulLogger` | Client logging wrapper. |
+| `EntityExtensions.cs` | `EntityExtensions` | Fluent ECS extension methods using `Soul.EntityManager`. |
+| `SoulCoroutineHost.cs` | `SoulCoroutineHost` | IL2CPP `MonoBehaviour` coroutine host. Required by `IconDownloader` for async `UnityWebRequest` downloads. Registered via `ClassInjector.RegisterTypeInIl2Cpp` in `SoulPlugin.Load()`. Lazily creates a persistent `GameObject` on first `Run()` call. |
 
 ### Services/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `LocalizationInjector.cs` | `LocalizationInjector` | Scans LilithsMind definitions for NameKey/DescKey. Injects `DisplayNameOverrides` and `TooltipOverrides` into `Localization._LocalizedStrings`. Uses `AssetGuid.FromString()` for parsing. Supports `ClearPrevious()` via `LoadDefaultLanguage()`. |
-| `RecipePatcher.cs` | `RecipePatcher` | Builds name→GUID map from PrefabCollectionSystem + LilithsMind definitions. Patches: RecipeData, RecipeHashLookupMap, RecipeRequirementBuffer, RecipeOutputBuffer, WorkstationRecipesBuffer (stations + player). |
-| `ServerRegistry.cs` | `ServerRegistry` | `servers.json` file management — maps connection string → folder name. Methods: `Load()`, `TryGetFolderName()`, `Register()`. Persists immediately on register. **Moved from Config/ to Services/.** |
+| `LocalizationInjector.cs` | `LocalizationInjector` | Scans LilithsMind definitions for NameKey/DescKey. Injects `DisplayName` and `Tooltip` from `payload.ItemAppearanceOverrides` into `Localization._LocalizedStrings`. `ClearPrevious()` via `LoadDefaultLanguage()`. |
+| `IconPatcher.cs` | `IconPatcher` | Applies `Icon` from `payload.ItemAppearanceOverrides` to `ManagedItemData.Icon`. Builds at world ready: prefab name → PrefabGUID (LilithsMind reflection), filename → PNG path (Icons/ recursive scan, PNG only), sprite name → Sprite (Resources). Resolution order: local file → in-game sprite → https:// URL. Stores previous icons for `ClearPrevious()` restore. |
+| `IconDownloader.cs` | `IconDownloader` | https:// URL icon downloads. Checks Icons/ cache first. Downloads via `UnityWebRequestTexture`, saves as PNG, invokes callback. Runs via `SoulCoroutineHost`. Filename derived from URL last path segment. |
+| `RecipePatcher.cs` | `RecipePatcher` | Name→GUID map from PrefabCollectionSystem + LilithsMind. Patches RecipeData, RecipeHashLookupMap, buffers, WorkstationRecipesBuffer. |
+| `ServerRegistry.cs` | `ServerRegistry` | `servers.json` — maps connection string → folder name. `Load()`, `TryGetFolderName()`, `Register()`. |
 
 ### Patches/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `ClientInitPatch.cs` | `ClientInitPatch` | Harmony postfix on `GameDataManager.OnUpdate`. Single-fire — reads `ClientBootstrapSystem.ConnectionString`, calls `SyncReceiver.NotifyWorldReady()`. Supports `Reset()`. |
-| `ClientChatSystemPatch.cs` | `ClientChatSystemPatch` | Harmony **prefix** on `ClientChatSystem.OnUpdate`. Filters for `ServerChatMessageType.System`, passes to `SyncReceiver.TryHandleMessage()`. Destroys consumed entities before UI sees them. |
+| `ClientInitPatch.cs` | `ClientInitPatch` | Harmony postfix on `GameDataManager.OnUpdate`. Single-fire — reads `ClientBootstrapSystem.ConnectionString`, calls `SyncReceiver.NotifyWorldReady()`. |
+| `ClientChatSystemPatch.cs` | `ClientChatSystemPatch` | Harmony **prefix** on `ClientChatSystem.OnUpdate`. Filters `ServerChatMessageType.System`, passes to `SyncReceiver.TryHandleMessage()`. Destroys consumed entities. |
 
 ### Network/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `SyncReceiver.cs` | `SyncReceiver` | Accumulates `[[LG:N]]` chunks from chat messages. On `[[LG:end]]`: concats, deserializes, writes to disk, applies. Supports pre-apply from cached sync.json. Handles out-of-order arrivals (payload before world ready → pending). |
+| `SyncReceiver.cs` | `SyncReceiver` | Accumulates tiered chunks. On `[[LG:end:T:CKSUM]]`: base64-decode, GZip-decompress, deserialize, write to disk, apply. `NotifyWorldReady()` calls `LocalizationInjector.BuildLookupTable()`, `RecipePatcher.BuildNameMap()`, `IconPatcher.BuildSpriteMaps()`. `ApplyPayload` order: LocalizationInjector → IconPatcher → RecipePatcher. |
 
 ### Config/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `SoulConfig.cs` | `SoulConfig` | `DebugLogging` (bool) |
-| `SoulPathIndex.cs` | `SoulPathIndex` | Root, CoreConfig, per-server ServerDir(), SyncFile(). Renamed from `SoulPaths` to match *Index convention. |
+| `SoulConfig.cs` | `SoulConfig` | `DebugLogging` (bool). |
+| `SoulPathIndex.cs` | `SoulPathIndex` | `Root`, `CoreConfig`, `IconsDir` (Icons/ for PNG files + URL cache), `ServerDir()`, `SyncFile()`. |

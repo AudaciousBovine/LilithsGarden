@@ -1,10 +1,6 @@
 // ============================================================
 //  HeartPathIndex — LilithsHeart
-//
-//  [CHANGED] Moved from LilithsHeart/ root → Config/.
-//            Namespace updated: LilithsHeart → LilithsHeart.Config.
-//            Any file referencing HeartPathIndex must add:
-//                using LilithsHeart.Config;
+//  LilithsHeart/Config/HeartPathIndex.cs
 //
 //  Single source of truth for every filesystem path used by
 //  LilithsHeart and its child modules.
@@ -16,28 +12,30 @@
 //      LilithsHeart/
 //          LilithsHeart.cfg            ← Heart core settings
 //          LilithsCookbook.cfg         ← child module cfg files
-//          Localization/
-//              *.json                  ← server localization overrides
-//          Recipes/                    ← recipe config data (LilithsCookbook)
-//          Stations/                   ← station config data (LilithsCookbook)
+//          Items/                      ← item appearance overrides (*.json, recursive)
+//              example.json
+//              Currencies/
+//              Weapons/
+//          Recipes/                    ← recipe config (LilithsCookbook)
+//          Stations/                   ← station config (LilithsCookbook)
+//          MainQuest/                  ← quest text (LilithsMachinations, future)
+//          Spells/                     ← spell names/tooltips (LilithsGrimoire, future)
 //
-//  [CHANGED] Removed stale Names/ directory from the layout comment.
-//            Names/*.json was written by PrefabNameExporter which has been
-//            deleted. Prefab name resolution now uses LilithsMind definition
-//            classes directly at runtime — no JSON files are read or written.
+//  [CHANGED] Replaced LocalizationDir with ItemsDir.
+//            The old Localization/ folder held flat display name
+//            and tooltip JSON files. The new Items/ folder holds
+//            combined appearance JSON files (DisplayName, Tooltip,
+//            Icon) and supports arbitrary subdirectory organization.
+//            LocalizationService scans Items/ recursively via
+//            SearchOption.AllDirectories.
 //
-//  Child modules should use HeartPathIndex to resolve all paths rather than
-//  building their own path strings. This keeps the layout consistent
-//  and refactorable from one place.
+//  Child modules register their own directories with
+//  LocalizationService.RegisterDirectory() rather than adding
+//  named paths here — HeartPathIndex only needs to know about
+//  directories that Heart core itself owns.
 //
-//  Usage in a child module's Plugin.Load():
-//
-//      var cfg = new ConfigFile(HeartPathIndex.ModuleConfig("LilithsCookbook"), saveOnInit: true);
-//
-//  Usage for a data subfolder:
-//
-//      var recipesDir = HeartPathIndex.DataDir("Recipes");
-//
+//  Child modules should use HeartPathIndex.DataDir() to resolve
+//  their own subdirectory paths consistently.
 // ============================================================
 
 namespace LilithsHeart.Config;
@@ -76,10 +74,15 @@ public static class HeartPathIndex
     // ── Data subdirectories ─────────────────────────────────
 
     /// <summary>
-    /// BepInEx/config/LilithsHeart/Localization/
-    /// Server localization override files.
+    /// BepInEx/config/LilithsHeart/Items/
+    /// Item appearance override files (DisplayName, Tooltip, Icon).
+    /// Scanned recursively by LocalizationService — admins can create
+    /// subdirectories freely (e.g. Items/Currencies/, Items/Weapons/).
+    /// Registered with LocalizationService by Heart.OnInitialize().
+    ///
+    /// [CHANGED] Replaces LocalizationDir (Localization/ folder).
     /// </summary>
-    public static readonly string LocalizationDir = Path.Combine(Root, "Localization");
+    public static readonly string ItemsDir = Path.Combine(Root, "Items");
 
     /// <summary>
     /// Returns the path for a named data subdirectory.

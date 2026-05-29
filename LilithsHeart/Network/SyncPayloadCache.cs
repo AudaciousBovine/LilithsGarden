@@ -4,214 +4,229 @@ using System.Text;
 using System.Text.Json;
 using LilithsHeart.Config;
 using LilithsHeart.Foundation;
+using LilithsMind.Data;
 using LilithsMind.Network;
 
 // ============================================================
 //  SyncPayloadCache — LilithsHeart
 //  LilithsHeart/Network/SyncPayloadCache.cs
 //
-//  Builds, compresses, and caches one payload blob per sync tier.
-//  SyncSender reads the cached blobs on client connect and
-//  enqueues them into SyncQueue for rate-limited delivery.
+//  Builds and caches the ServerSyncPayload split into priority
+//  tiers. Each tier is GZip-compressed, base64-encoded, and
+//  chunked into FixedString512Bytes-safe strings.
 //
-//  [CHANGED] No longer caches a single flat JSON string.
-//            Now caches four compressed Base64 blobs — one per
-//            SyncTier — built from the payload data split by
-//            TierAssignments. Each blob is independent: GZip
-//            compressed JSON, Base64 encoded for chat transport.
+//  Heart calls Rebuild() twice:
+//    1. Before OnInitialized fires — baseline empty payload.
+//    2. After all modules have registered overrides — final payload.
 //
-//  Blob pipeline per tier:
-//  ────────────────────────
-//      Raw payload section
-//        → JSON serialize (System.Text.Json)
-//        → GZip compress  (System.IO.Compression)
-//        → Base64 encode  (Convert.ToBase64String)
-//        → Split into 450-char chunks
-//        → Store as TierBlob (chunks + checksum + tier)
+//  SyncSender reads GetAllTierBlobs() on client connect and
+//  enqueues the blobs into SyncQueue for controlled delivery.
 //
-//  Why GZip + Base64?
+//  Tier assignment:
+//  ─────────────────
+//  Critical   — ItemAppearanceOverrides (names, tooltips, icons)
+//  High       — RecipeOverrides + StationRecipeOverrides
+//  Normal     — PlayerRecipesToAdd + PlayerRecipesToRemove
+//  Low        — Reserved for future modules (Machinations, Grimoire)
+//  Background — Reserved for large data sets (Menagerie, Bounty)
+//
+//  Why GZip + base64?
 //  ───────────────────
-//  GZip reduces string-heavy JSON by ~85-90%. Base64 is required
-//  because FixedString512Bytes in ChatMessageServerEvent cannot
-//  carry arbitrary binary data. Together they give us ~120 chunks
-//  worst-case vs ~290 without compression — a 2.5x improvement.
+//  ChatMessageServerEvent.MessageText is FixedString512Bytes.
+//  GZip reduces payload size significantly (JSON compresses well
+//  at 60-80%). Base64 encodes binary to safe ASCII for the
+//  FixedString. Combined this lets us send much larger payloads
+//  with fewer chunks than plain JSON.
 //
-//  [PERFORMANCE] Blob building runs at most twice at startup
-//                (baseline + after modules register). No per-connect
-//                serialization cost. Blobs are reused for every
-//                client that connects until Rebuild() is called.
+//  [CHANGED] Replaced single CachedJson string with per-tier
+//            TierBlobData array. SyncSender now calls
+//            GetAllTierBlobs() instead of reading CachedJson.
+//
+//  [CHANGED] Updated to use ItemAppearanceOverrides instead of
+//            separate DisplayNameOverrides / TooltipOverrides.
+//
+//  [PERFORMANCE] Compression and serialization run at most twice
+//                at startup. No per-frame or per-connect cost.
+//                GetAllTierBlobs() returns cached array — O(1).
 // ============================================================
 
 namespace LilithsHeart.Network;
-
-/// <summary>
-/// A single compressed tier payload ready for chunked transport.
-/// </summary>
-public sealed class TierBlob
-{
-    public SyncTier    Tier      { get; init; }
-    public string[]    Chunks    { get; init; } = [];
-    public string      Checksum  { get; init; } = string.Empty;
-    public int         ChunkCount => Chunks.Length;
-}
 
 public static class SyncPayloadCache
 {
     private const string LOG_SOURCE = "LilithsHeart.SyncPayloadCache";
 
-    private const int MAX_CHUNK_CONTENT = 450;
+    // Max content chars per chunk — leaves room for [[LG:T:NNNN]] prefix.
+    private const int MAX_CHUNK_CONTENT = 440;
 
     static readonly JsonSerializerOptions _writeOptions = new() { WriteIndented = false };
 
-    // One blob per tier — null until Rebuild() is called.
-    // Indexed by (int)SyncTier - 1 for zero-based access.
-    static volatile TierBlob?[] _tierBlobs = new TierBlob?[4];
+    // One blob per tier — indexed by SyncTierEnum int value.
+    static volatile TierBlobData[]? _tierBlobs;
 
-    // Retained for disk cache writes on Soul side — JSON is still
-    // written to sync.json for human readability and version tolerance.
-    static volatile string? _cachedJson;
-    public static string? CachedJson => _cachedJson;
+    // ── Public API ───────────────────────────────────────────
 
     /// <summary>
-    /// Returns the cached blob for a specific tier, or null if not built.
+    /// Returns all cached tier blobs, or an empty array if not yet built.
+    /// Called by SyncSender.EnqueueSyncTiers() on client connect.
+    /// [PERFORMANCE] Returns cached array — O(1), no allocation.
     /// </summary>
-    public static TierBlob? GetTierBlob(SyncTier tier)
-        => _tierBlobs[(int)tier - 1];
+    public static IReadOnlyList<TierBlobData> GetAllTierBlobs()
+        => _tierBlobs ?? Array.Empty<TierBlobData>();
 
     /// <summary>
-    /// Returns all non-null tier blobs in tier order (Critical first).
-    /// </summary>
-    public static IEnumerable<TierBlob> GetAllTierBlobs()
-        => _tierBlobs.Where(b => b != null).Select(b => b!);
-
-    /// <summary>
-    /// Builds and caches compressed tier blobs from the current payload data.
+    /// Builds and caches all tier blobs from the current server state.
     /// Called by Heart.OnInitialize() before and after module registration.
-    ///
-    /// [PERFORMANCE] GZip compression + Base64 encoding runs once per call.
-    ///               Runs at most twice at startup — no per-connect cost.
+    /// [PERFORMANCE] GZip + serialize runs once per call — at most twice
+    ///               at startup.
     /// </summary>
     public static void Rebuild(
         string serverIdentity,
-        Dictionary<string, LilithRecipeData> recipeOverrides,
+        Dictionary<string, LilithRecipeData>  recipeOverrides,
         Dictionary<string, LilithStationData> stationRecipeOverrides,
-        List<string> playerRecipesToAdd,
-        List<string> playerRecipesToRemove)
+        List<string>                           playerRecipesToAdd,
+        List<string>                           playerRecipesToRemove)
     {
         try
         {
-            var payload = new ServerSyncPayload
+            var identity = SanitizeFolderName(serverIdentity);
+
+            // ── Critical tier — item appearance ──────────────
+            var appearancePayload = new
             {
-                ServerIdentity       = SanitizeFolderName(serverIdentity),
-                DisplayNameOverrides = new Dictionary<string, string>(LocalizationConfig.DisplayNames),
-                TooltipOverrides     = new Dictionary<string, string>(LocalizationConfig.Tooltips),
+                ServerIdentity          = identity,
+                ItemAppearanceOverrides = new Dictionary<string, ItemAppearanceData>(
+                    LocalizationConfig.Overrides),
             };
 
-            foreach (var (key, value) in recipeOverrides)
-                payload.RecipeOverrides[key] = value;
+            // ── High tier — recipes + stations ───────────────
+            var recipePayload = new
+            {
+                ServerIdentity         = identity,
+                RecipeOverrides        = new Dictionary<string, LilithRecipeData>(recipeOverrides),
+                StationRecipeOverrides = new Dictionary<string, LilithStationData>(stationRecipeOverrides),
+            };
 
-            foreach (var (key, value) in stationRecipeOverrides)
-                payload.StationRecipeOverrides[key] = value;
+            // ── Normal tier — player recipe changes ──────────
+            var playerPayload = new
+            {
+                ServerIdentity        = identity,
+                PlayerRecipesToAdd    = new List<string>(playerRecipesToAdd),
+                PlayerRecipesToRemove = new List<string>(playerRecipesToRemove),
+            };
 
-            payload.PlayerRecipesToAdd    = new List<string>(playerRecipesToAdd);
-            payload.PlayerRecipesToRemove = new List<string>(playerRecipesToRemove);
+            // Compute shared hash across all tiers so Soul can use
+            // a single PayloadHash for cache invalidation.
+            var fullPayload = new ServerSyncPayload
+            {
+                ServerIdentity          = identity,
+                ItemAppearanceOverrides = appearancePayload.ItemAppearanceOverrides,
+            };
 
-            // Compute hash on full payload for disk cache comparison.
-            var jsonForHash = JsonSerializer.Serialize(payload, _writeOptions);
-            payload.PayloadHash = ComputeHash(jsonForHash);
+            foreach (var (k, v) in recipeOverrides)
+                fullPayload.RecipeOverrides[k] = v;
+            foreach (var (k, v) in stationRecipeOverrides)
+                fullPayload.StationRecipeOverrides[k] = v;
 
-            // Cache full JSON for disk write (sync.json stays human-readable JSON).
-            _cachedJson = JsonSerializer.Serialize(payload, _writeOptions);
+            fullPayload.PlayerRecipesToAdd    = new List<string>(playerRecipesToAdd);
+            fullPayload.PlayerRecipesToRemove = new List<string>(playerRecipesToRemove);
 
-            // Build one compressed blob per tier.
-            var newBlobs = new TierBlob?[4];
-            newBlobs[(int)SyncTier.Critical - 1] = BuildTierBlob(SyncTier.Critical, BuildCriticalSection(payload));
-            newBlobs[(int)SyncTier.High     - 1] = BuildTierBlob(SyncTier.High,     BuildHighSection(payload));
-            newBlobs[(int)SyncTier.Normal   - 1] = BuildTierBlob(SyncTier.Normal,   BuildNormalSection(payload));
-            newBlobs[(int)SyncTier.Low      - 1] = BuildTierBlob(SyncTier.Low,      BuildLowSection(payload));
+            var hashJson    = JsonSerializer.Serialize(fullPayload, _writeOptions);
+            var payloadHash = ComputeHash(hashJson);
 
-            _tierBlobs = newBlobs;
+            fullPayload.PayloadHash = payloadHash;
 
-            int totalChunks = newBlobs.Where(b => b != null).Sum(b => b!.ChunkCount);
+            // Build one blob per active tier.
+            var blobs = new List<TierBlobData>();
+
+            // Critical — always built even if empty so Soul gets the
+            // identity + hash on first chunk.
+            blobs.Add(BuildBlob(SyncTierEnum.Critical,
+                JsonSerializer.Serialize(new
+                {
+                    fullPayload.ServerIdentity,
+                    fullPayload.PayloadHash,
+                    fullPayload.ItemAppearanceOverrides,
+                }, _writeOptions)));
+
+            // High — only if there are recipe/station overrides.
+            if (recipeOverrides.Count > 0 || stationRecipeOverrides.Count > 0)
+            {
+                blobs.Add(BuildBlob(SyncTierEnum.High,
+                    JsonSerializer.Serialize(new
+                    {
+                        fullPayload.ServerIdentity,
+                        fullPayload.PayloadHash,
+                        fullPayload.RecipeOverrides,
+                        fullPayload.StationRecipeOverrides,
+                    }, _writeOptions)));
+            }
+
+            // Normal — only if there are player recipe changes.
+            if (playerRecipesToAdd.Count > 0 || playerRecipesToRemove.Count > 0)
+            {
+                blobs.Add(BuildBlob(SyncTierEnum.Normal,
+                    JsonSerializer.Serialize(new
+                    {
+                        fullPayload.ServerIdentity,
+                        fullPayload.PayloadHash,
+                        fullPayload.PlayerRecipesToAdd,
+                        fullPayload.PlayerRecipesToRemove,
+                    }, _writeOptions)));
+            }
+
+            _tierBlobs = blobs.ToArray();
+
+            int totalChunks = _tierBlobs.Sum(b => b.ChunkCount);
 
             HeartLogger.Info(LOG_SOURCE,
-                $"Payload cached — hash {payload.PayloadHash}, " +
-                $"total chunks: {totalChunks} across {newBlobs.Count(b => b != null)} tier(s). " +
-                $"T1:{newBlobs[0]?.ChunkCount ?? 0} " +
-                $"T2:{newBlobs[1]?.ChunkCount ?? 0} " +
-                $"T3:{newBlobs[2]?.ChunkCount ?? 0} " +
-                $"T4:{newBlobs[3]?.ChunkCount ?? 0}");
+                $"Payload cached — {_tierBlobs.Length} tier(s), " +
+                $"{totalChunks} total chunk(s), hash {payloadHash}, " +
+                $"{fullPayload.ItemAppearanceOverrides.Count} appearance override(s), " +
+                $"{fullPayload.RecipeOverrides.Count} recipe override(s), " +
+                $"{fullPayload.StationRecipeOverrides.Count} station override(s), " +
+                $"{fullPayload.PlayerRecipesToAdd.Count} player add(s), " +
+                $"{fullPayload.PlayerRecipesToRemove.Count} player remove(s).");
         }
         catch (Exception ex)
         {
             HeartLogger.Error(LOG_SOURCE, $"Rebuild failed: {ex.Message}");
-            _cachedJson = null;
-            _tierBlobs  = new TierBlob?[4];
+            _tierBlobs = null;
         }
     }
 
-    // ── Tier section builders ─────────────────────────────────
+    // ── Internal ─────────────────────────────────────────────
 
-    // Each builder produces a minimal DTO containing only the data
-    // for that tier. Soul deserializes each tier independently.
-
-    static object BuildCriticalSection(ServerSyncPayload payload) => new
+    /// <summary>
+    /// Compresses a JSON string with GZip, base64-encodes it, and
+    /// splits into MAX_CHUNK_CONTENT-char chunks.
+    /// </summary>
+    static TierBlobData BuildBlob(SyncTierEnum tier, string json)
     {
-        payload.ServerIdentity,
-        payload.PayloadHash,
-        DisplayNameOverrides = TierAssignments.ItemNames    == SyncTier.Critical ? payload.DisplayNameOverrides : null,
-        TooltipOverrides     = TierAssignments.ItemTooltips == SyncTier.Critical ? payload.TooltipOverrides     : null,
-    };
-
-    static object BuildHighSection(ServerSyncPayload payload) => new
-    {
-        RecipeOverrides        = TierAssignments.RecipeData     == SyncTier.High ? payload.RecipeOverrides        : null,
-        StationRecipeOverrides = TierAssignments.StationRecipes == SyncTier.High ? payload.StationRecipeOverrides : null,
-        PlayerRecipesToAdd     = TierAssignments.PlayerRecipes  == SyncTier.High ? payload.PlayerRecipesToAdd     : null,
-        PlayerRecipesToRemove  = TierAssignments.PlayerRecipes  == SyncTier.High ? payload.PlayerRecipesToRemove  : null,
-    };
-
-    static object BuildNormalSection(ServerSyncPayload payload) => new { };
-
-    static object BuildLowSection(ServerSyncPayload payload) => new { };
-
-    // ── Blob builder ──────────────────────────────────────────
-
-    static TierBlob BuildTierBlob(SyncTier tier, object section)
-    {
-        // Serialize → GZip → Base64 → chunk.
-        var json        = JsonSerializer.Serialize(section, _writeOptions);
-        var compressed  = GZipCompress(json);
-        var base64      = Convert.ToBase64String(compressed);
-        var chunks      = Chunkify(base64);
-        var checksum    = ComputeHash(base64)[..6];
-
-        return new TierBlob
+        // GZip compress.
+        byte[] compressed;
+        using (var ms = new MemoryStream())
         {
-            Tier     = tier,
-            Chunks   = chunks,
-            Checksum = checksum,
-        };
+            using (var gz = new GZipStream(ms, CompressionLevel.Optimal))
+            {
+                var bytes = Encoding.UTF8.GetBytes(json);
+                gz.Write(bytes, 0, bytes.Length);
+            }
+            compressed = ms.ToArray();
+        }
+
+        // Base64 encode to ASCII-safe string.
+        var encoded = Convert.ToBase64String(compressed);
+
+        // Split into chunks.
+        var chunks  = Chunkify(encoded);
+        var checksum = ComputeHash(encoded);
+
+        return new TierBlobData(tier, chunks, checksum);
     }
-
-    // ── Compression ───────────────────────────────────────────
-
-    static byte[] GZipCompress(string input)
-    {
-        var inputBytes = Encoding.UTF8.GetBytes(input);
-        using var output     = new MemoryStream();
-        using var gzip       = new GZipStream(output, CompressionLevel.Optimal);
-        gzip.Write(inputBytes, 0, inputBytes.Length);
-        gzip.Close();
-        return output.ToArray();
-    }
-
-    // ── Chunking ──────────────────────────────────────────────
 
     static string[] Chunkify(string input)
     {
-        if (input.Length == 0) return [];
-
         var chunks = new List<string>();
         int pos    = 0;
 
@@ -224,8 +239,6 @@ public static class SyncPayloadCache
 
         return chunks.ToArray();
     }
-
-    // ── Helpers ───────────────────────────────────────────────
 
     static string SanitizeFolderName(string name)
     {

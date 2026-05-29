@@ -1,29 +1,35 @@
+using LilithsMind.Data;
+
 // ============================================================
 //  LocalizationConfig — LilithsHeart
 //  LilithsHeart/Config/LocalizationConfig.cs
 //
-//  Pure data surface for server-defined display name and tooltip
-//  overrides. Holds the merged results of all localization JSON
-//  files loaded by LocalizationService.
+//  Pure data surface for all server-defined item appearance
+//  overrides. Holds the merged results of all JSON files loaded
+//  by LocalizationService across all registered directories.
 //
-//  [CHANGED] Split from the original monolithic LocalizationConfig.
-//            Loading logic (Initialize, Reload, Load, LoadFile,
-//            EnsureExampleFile) has moved to:
-//                LilithsHeart/Services/LocalizationService.cs
-//            This file now owns only the data surface — the two
-//            dictionaries and their read accessors.
+//  [CHANGED] Replaced two flat dictionaries (_displayNames,
+//            _tooltips) with a single dictionary keyed by prefab
+//            name and valued by ItemAppearanceData. This matches
+//            the new combined Items/ JSON format and the updated
+//            ServerSyncPayload.ItemAppearanceOverrides field.
+//
+//            Old accessors GetDisplayName() and GetTooltip() are
+//            removed. Consumers read from Overrides directly or
+//            call GetOverride() for a single entry.
 //
 //  Key format: prefab Name (from LilithsMind PrefabDef.Name) or
 //  Prefab string (e.g. "Item_BloodEssence_T01"). Soul resolves
 //  these to AssetGuids via LilithsMind's NameKey/DescKey fields.
 //
-//  ⚠️  IMPORTANT: Overrides only take effect on the client if
-//  LilithsMind has a PrefabDef entry with NameKey (for display names)
-//  or DescKey (for tooltips) populated for that prefab. Entries
-//  referencing unknown or incomplete prefabs are silently skipped
-//  on the client with a warning in the Soul log.
+//  ⚠️  IMPORTANT: DisplayName/Tooltip overrides only take effect
+//  on the client if LilithsMind has a PrefabDef entry with NameKey
+//  (for DisplayName) or DescKey (for Tooltip) populated for that
+//  prefab. Icon overrides require the icon source to be resolvable
+//  by Soul's IconPatcher. Unresolvable entries are skipped with a
+//  warning in the Soul log.
 //
-//  [PERFORMANCE] Two flat dictionaries — O(1) lookup per key.
+//  [PERFORMANCE] Single flat dictionary — O(1) lookup per key.
 //                Populated once at world ready by LocalizationService.
 //                No file I/O occurs here.
 // ============================================================
@@ -32,20 +38,13 @@ namespace LilithsHeart.Config;
 
 public static class LocalizationConfig
 {
-    static readonly Dictionary<string, string> _displayNames = new();
-    static readonly Dictionary<string, string> _tooltips     = new();
+    static readonly Dictionary<string, ItemAppearanceData> _overrides = new();
 
     /// <summary>
-    /// All display name overrides keyed by prefab name.
+    /// All item appearance overrides keyed by prefab name.
     /// Populated by LocalizationService.Initialize() / Reload().
     /// </summary>
-    public static IReadOnlyDictionary<string, string> DisplayNames => _displayNames;
-
-    /// <summary>
-    /// All tooltip overrides keyed by prefab name.
-    /// Populated by LocalizationService.Initialize() / Reload().
-    /// </summary>
-    public static IReadOnlyDictionary<string, string> Tooltips => _tooltips;
+    public static IReadOnlyDictionary<string, ItemAppearanceData> Overrides => _overrides;
 
     /// <summary>
     /// True once LocalizationService has completed its initial load.
@@ -53,48 +52,48 @@ public static class LocalizationConfig
     public static bool IsLoaded { get; private set; }
 
     /// <summary>
-    /// Returns the display name override for a prefab, or null if none exists.
+    /// Returns the appearance override for a prefab, or null if none exists.
     /// </summary>
-    public static string? GetDisplayName(string prefabName)
-        => _displayNames.TryGetValue(prefabName, out var v) ? v : null;
-
-    /// <summary>
-    /// Returns the tooltip override for a prefab, or null if none exists.
-    /// </summary>
-    public static string? GetTooltip(string prefabName)
-        => _tooltips.TryGetValue(prefabName, out var v) ? v : null;
+    public static ItemAppearanceData? GetOverride(string prefabName)
+        => _overrides.TryGetValue(prefabName, out var v) ? v : null;
 
     // ── Called by LocalizationService only ───────────────────
 
     /// <summary>
-    /// Clears both dictionaries and resets IsLoaded.
+    /// Clears the overrides dictionary and resets IsLoaded.
     /// Called by LocalizationService before reloading.
     /// </summary>
     internal static void Clear()
     {
-        _displayNames.Clear();
-        _tooltips.Clear();
+        _overrides.Clear();
         IsLoaded = false;
     }
 
     /// <summary>
-    /// Adds a display name override entry.
+    /// Adds or merges an appearance override entry.
+    /// If an entry for the key already exists, only non-null fields
+    /// from the incoming data overwrite the existing entry — this
+    /// allows multiple files to contribute different fields for the
+    /// same item (e.g. one file sets DisplayName, another sets Icon).
     /// Called by LocalizationService during file loading.
     /// </summary>
-    internal static void AddDisplayName(string key, string value)
-        => _displayNames[key] = value;
+    internal static void AddOverride(string key, ItemAppearanceData incoming)
+    {
+        if (!_overrides.TryGetValue(key, out var existing))
+        {
+            _overrides[key] = incoming;
+            return;
+        }
 
-    /// <summary>
-    /// Adds a tooltip override entry.
-    /// Called by LocalizationService during file loading.
-    /// </summary>
-    internal static void AddTooltip(string key, string value)
-        => _tooltips[key] = value;
+        // Merge — later file wins per field, not per entry.
+        if (incoming.DisplayName is not null) existing.DisplayName = incoming.DisplayName;
+        if (incoming.Tooltip     is not null) existing.Tooltip     = incoming.Tooltip;
+        if (incoming.Icon        is not null) existing.Icon        = incoming.Icon;
+    }
 
     /// <summary>
     /// Marks the config as fully loaded.
     /// Called by LocalizationService after all files are processed.
     /// </summary>
-    internal static void MarkLoaded()
-        => IsLoaded = true;
+    internal static void MarkLoaded() => IsLoaded = true;
 }

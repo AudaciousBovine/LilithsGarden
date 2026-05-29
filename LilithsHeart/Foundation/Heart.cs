@@ -143,7 +143,7 @@ public static class Heart
         // [ADDED] Clear any pending sync chunks for all clients.
         //         Prevents stale chunks from a previous world session
         //         being sent on the next world load.
-        SyncQueue.ClearAll();
+        SyncQueue.Clear();
 
         HeartLogger.Info(LOG_SOURCE, "Heart destroyed.");
     }

@@ -1,79 +1,66 @@
 using Unity.Entities;
-using LilithsHeart.Config;
-using LilithsHeart.Foundation;
 
 // ============================================================
 //  SyncQueue — LilithsHeart
 //  LilithsHeart/Network/SyncQueue.cs
 //
-//  Per-client chunk queue for the tiered sync transport.
-//  Holds pending chat message strings for each connected client
-//  and drains them at a controlled rate per frame via
-//  SchedulerPatch.
+//  Thread-safe queue of pending sync messages to be sent to
+//  connecting clients. SchedulerPatch drains this queue at a
+//  controlled rate each server frame.
 //
-//  Why rate limiting?
-//  ──────────────────
-//  Sending all chunks in one frame creates N × ChunkCount
-//  EntityManager.CreateEntity calls simultaneously. With 20+
-//  simultaneous connects and ~290 total chunks per client, this
-//  could produce thousands of entity creates on one frame.
-//  Spreading across frames keeps the server frame time stable.
+//  Why queued instead of immediate?
+//  ──────────────────────────────────
+//  Sending all chunks immediately on connect creates a spike of
+//  ECS entity creations in a single frame. On a busy server with
+//  multiple simultaneous connects this could cause frame hitches.
+//  SyncQueue decouples enqueueing (connect event) from sending
+//  (frame drain) so the cost is spread across frames.
 //
-//  Queue structure:
-//  ─────────────────
-//  One queue per client, keyed by userIndex (int).
-//  Each queue entry is a pre-formatted chat message string
-//  ready to send — the sentinel and chunk prefix are already
-//  embedded. SyncSender enqueues; SchedulerPatch dequeues.
+//  Structure:
+//  ───────────
+//  Each pending send is a SyncPendingEntry — a client's routing
+//  info plus a queue of message strings to send. Entries are
+//  processed in FIFO order. Within each entry, messages are
+//  sent in the order they were enqueued (tier order preserved).
 //
-//  Tier ordering:
-//  ──────────────
-//  Tiers are enqueued in order (Critical first). The queue is
-//  FIFO so tier ordering is preserved automatically — no
-//  additional sorting needed.
+//  Thread safety:
+//  ───────────────
+//  Enqueue() may be called from the connect event (main thread).
+//  Drain() is called from SchedulerPatch (main thread).
+//  Both run on the server main thread so a simple lock suffices.
 //
-//  [PERFORMANCE] Queue operations are O(1) — Enqueue/Dequeue
-//                on Queue<T>. Lock is held only briefly per
-//                Drain() call. One lock per frame per active
-//                client — negligible at typical server pop.
+//  [PERFORMANCE] Enqueue() is O(n) over messages — called once
+//                per connect. Drain() processes at most
+//                ChunksPerFrame entities per frame — O(1) amortized.
+//                Lock contention is negligible — both callers are
+//                on the same thread.
 // ============================================================
 
 namespace LilithsHeart.Network;
-
-/// <summary>
-/// Holds the routing context for a queued chunk — where to send it.
-/// </summary>
-public readonly struct QueuedChunk
-{
-    public readonly Entity    UserEntity;
-    public readonly Entity    CharacterEntity;
-    public readonly int       UserIndex;
-    public readonly string    Message;
-
-    public QueuedChunk(Entity userEntity, Entity characterEntity, int userIndex, string message)
-    {
-        UserEntity      = userEntity;
-        CharacterEntity = characterEntity;
-        UserIndex       = userIndex;
-        Message         = message;
-    }
-}
 
 public static class SyncQueue
 {
     private const string LOG_SOURCE = "LilithsHeart.SyncQueue";
 
-    // One queue per connected client, keyed by userIndex.
-    // [PERFORMANCE] Dictionary<int, Queue<QueuedChunk>> — O(1) per client lookup.
-    static readonly Dictionary<int, Queue<QueuedChunk>> _queues = new();
+    // How many chunk entities to create per server frame.
+    // Keeps per-frame ECS entity creation bounded.
+    // [PERFORMANCE] Tune this if large connects cause frame hitches.
+    public const int ChunksPerFrame = 10;
+
     static readonly object _lock = new();
+
+    // FIFO queue of pending client sends.
+    static readonly Queue<SyncPendingEntry> _pending = new();
 
     // ── Public API ───────────────────────────────────────────
 
     /// <summary>
-    /// Enqueues a batch of pre-formatted message strings for a specific client.
-    /// Called by SyncSender once per tier per connect.
-    /// Thread-safe.
+    /// Enqueues all messages for a connecting client.
+    /// Called once per connect from SyncSender.EnqueueSyncTiers().
+    /// Messages are sent in the order they are enqueued — tier
+    /// order is preserved by the caller.
+    ///
+    /// [PERFORMANCE] O(n) over messages — called once per connect.
     /// </summary>
     public static void Enqueue(
         Entity userEntity,
@@ -81,97 +68,90 @@ public static class SyncQueue
         int    userIndex,
         IEnumerable<string> messages)
     {
-        lock (_lock)
-        {
-            if (!_queues.TryGetValue(userIndex, out var queue))
-            {
-                queue = new Queue<QueuedChunk>();
-                _queues[userIndex] = queue;
-            }
+        var entry = new SyncPendingEntry(userEntity, characterEntity, userIndex);
 
-            foreach (var msg in messages)
-                queue.Enqueue(new QueuedChunk(userEntity, characterEntity, userIndex, msg));
-        }
+        foreach (var message in messages)
+            entry.Messages.Enqueue(message);
+
+        lock (_lock)
+            _pending.Enqueue(entry);
     }
 
     /// <summary>
-    /// Drains up to ChunksPerFrame chunks across all client queues.
-    /// Called every frame by SchedulerPatch.
-    /// Removes empty queues automatically.
-    /// Thread-safe.
+    /// Drains up to ChunksPerFrame messages from the front of the queue.
+    /// Called each server frame by SchedulerPatch.
+    /// Sends each message via SyncSender.SendQueuedChunk().
+    /// Removes entries when all their messages have been sent.
     ///
-    /// [PERFORMANCE] O(n) over active client queues per frame.
-    ///               n is bounded by server player count — negligible.
+    /// [PERFORMANCE] Creates at most ChunksPerFrame ECS entities per frame.
+    ///               O(ChunksPerFrame) — bounded constant cost per frame.
     /// </summary>
-    public static void Drain(Action<QueuedChunk> sendAction)
+    public static void Drain()
     {
-        int remaining = HeartConfig.ChunksPerFrame;
-        if (remaining <= 0) return;
+        int sent = 0;
 
         lock (_lock)
         {
-            // Collect keys first to avoid modifying during iteration.
-            var toRemove = new List<int>();
-
-            foreach (var (userIndex, queue) in _queues)
+            while (sent < ChunksPerFrame && _pending.Count > 0)
             {
-                while (remaining > 0 && queue.Count > 0)
+                var entry = _pending.Peek();
+
+                if (entry.Messages.Count == 0)
                 {
-                    var chunk = queue.Dequeue();
-                    try
-                    {
-                        sendAction(chunk);
-                    }
-                    catch (Exception ex)
-                    {
-                        HeartLogger.Error(LOG_SOURCE,
-                            $"Failed to send chunk for userIndex {userIndex}: {ex.Message}");
-                    }
-                    remaining--;
+                    _pending.Dequeue();
+                    continue;
                 }
 
-                if (queue.Count == 0)
-                    toRemove.Add(userIndex);
+                var message = entry.Messages.Dequeue();
+
+                SyncSender.SendQueuedChunk(
+                    entry.UserEntity,
+                    entry.CharacterEntity,
+                    entry.UserIndex,
+                    message);
+
+                sent++;
+
+                // If this entry is exhausted, remove it.
+                if (entry.Messages.Count == 0)
+                    _pending.Dequeue();
             }
-
-            foreach (var key in toRemove)
-                _queues.Remove(key);
         }
     }
 
     /// <summary>
-    /// Removes all queued chunks for a specific client.
-    /// Called when a client disconnects to prevent stale sends.
+    /// Returns true if there are pending messages to send.
+    /// Used by SchedulerPatch to skip the drain call when idle.
+    /// [PERFORMANCE] O(1) — avoids lock acquisition when queue is empty.
     /// </summary>
-    public static void ClearClient(int userIndex)
-    {
-        lock (_lock)
-        {
-            if (_queues.Remove(userIndex))
-                HeartLogger.Debug(LOG_SOURCE,
-                    $"Cleared queue for userIndex {userIndex} on disconnect.");
-        }
-    }
+    public static bool HasPending => _pending.Count > 0;
 
     /// <summary>
-    /// Clears all queues. Called on world destroy.
+    /// Clears all pending entries.
+    /// Called by Heart.OnDestroy() on server shutdown.
     /// </summary>
-    public static void ClearAll()
+    public static void Clear()
     {
         lock (_lock)
-        {
-            _queues.Clear();
-            HeartLogger.Debug(LOG_SOURCE, "All sync queues cleared.");
-        }
+            _pending.Clear();
     }
 
-    /// <summary>Returns the total number of pending chunks across all client queues.</summary>
-    public static int TotalPending
+    // ── Internal ─────────────────────────────────────────────
+
+    sealed class SyncPendingEntry
     {
-        get
+        public Entity UserEntity      { get; }
+        public Entity CharacterEntity { get; }
+        public int    UserIndex       { get; }
+
+        // Messages remaining to send for this client.
+        public Queue<string> Messages { get; } = new();
+
+        public SyncPendingEntry(Entity userEntity, Entity characterEntity, int userIndex)
         {
-            lock (_lock)
-                return _queues.Values.Sum(q => q.Count);
+            UserEntity      = userEntity;
+            CharacterEntity = characterEntity;
+            UserIndex       = userIndex;
         }
     }
 }

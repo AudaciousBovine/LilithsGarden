@@ -7,36 +7,28 @@ using LilithsHeart.Network;
 //  SchedulerPatch — LilithsHeart
 //  LilithsHeart/Patches/SchedulerPatch.cs
 //
-//  Drains the SyncQueue at a controlled rate every server frame.
+//  Drains SyncQueue at a controlled rate each server frame.
+//  Calls SyncQueue.Drain() which creates at most
+//  SyncQueue.ChunksPerFrame ECS entities per frame.
 //
-//  Hook target: ServerBootstrapSystem.OnUpdate
-//  ──────────────────────────────────────────
-//  ServerBootstrapSystem.OnUpdate runs every frame on the server
-//  main thread. This is the same hook point used by other V Rising
-//  mods for per-frame server-side work (Bloodcraft, KindredCommands).
-//  It gives us reliable main-thread access to EntityManager for
-//  ChatMessageServerEvent creation without threading concerns.
+//  Hook target: ServerBootstrapSystem.OnUpdate (postfix)
+//  ──────────────────────────────────────────────────────
+//  ServerBootstrapSystem.OnUpdate runs every server frame and
+//  is the established hook point for per-frame server work
+//  in V Rising mods. Postfix ensures game logic runs first.
 //
-//  Why this system?
-//  ─────────────────
-//  ChatMessageServerEvent entities must be created on the main
-//  thread — EntityManager is not thread-safe. ServerBootstrapSystem
-//  runs every frame before network processing, so entities created
-//  here are dispatched in the same frame.
+//  Why not a custom ECS system?
+//  ─────────────────────────────
+//  A Harmony patch on an existing system is simpler and avoids
+//  the complexity of registering a custom ComponentSystemBase
+//  in an IL2CPP environment. The per-frame cost is a single
+//  bool check (HasPending) when the queue is empty — negligible.
 //
-//  Rate limiting:
-//  ──────────────
-//  SyncQueue.Drain() sends at most HeartConfig.ChunksPerFrame
-//  chunks per frame across all connected clients. This prevents
-//  large simultaneous-connect spikes from creating thousands of
-//  entities in one frame. Default is 10 chunks/frame — tunable
-//  in HeartConfig for server hardware.
-//
-//  [PERFORMANCE] OnUpdate fires every frame. The Drain() call is
-//                O(n) over active client queues where n is server
-//                player count. When all queues are empty (steady
-//                state), the call returns immediately after the
-//                TotalPending == 0 early exit — effectively free.
+//  [PERFORMANCE] When SyncQueue.HasPending is false (normal play),
+//                cost is a single bool read per frame — effectively
+//                free. During a connect event, at most
+//                ChunksPerFrame entity creates occur per frame —
+//                bounded constant cost regardless of payload size.
 // ============================================================
 
 namespace LilithsHeart.Patches;
@@ -47,18 +39,11 @@ internal static class SchedulerPatch
     [HarmonyPostfix]
     static void Postfix()
     {
-        // Early exit when nothing is queued — no lock contention, no allocation.
-        // [PERFORMANCE] This is the hot path — must be as cheap as possible.
-        if (SyncQueue.TotalPending == 0) return;
+        // Fast path — skip lock acquisition when nothing is pending.
+        if (!SyncQueue.HasPending) return;
 
         if (!Heart.IsReady) return;
 
-        // Drain up to ChunksPerFrame chunks, sending each via SyncSender.
-        SyncQueue.Drain(chunk =>
-            SyncSender.SendQueuedChunk(
-                chunk.UserEntity,
-                chunk.CharacterEntity,
-                chunk.UserIndex,
-                chunk.Message));
+        SyncQueue.Drain();
     }
 }

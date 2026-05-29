@@ -8,17 +8,18 @@ The `ServerSyncPayload` class in `LilithsMind/Network/ServerSyncPayload.cs` is t
 
 ```
 ServerSyncPayload
-├── ServerIdentity: string           — Sanitized server name (used as folder name)
-├── PayloadHash: string              — First 8 hex chars of SHA256 (change detection)
-├── DisplayNameOverrides: Dictionary<string, string>
+├── ServerIdentity: string                              — Sanitized server name (folder key)
+├── PayloadHash: string                                 — First 8 hex chars of SHA256 (change detection)
+├── ItemAppearanceOverrides: Dictionary<string, ItemAppearanceData>
 │     Key: prefab Name or Prefab string
-│     Value: custom display name text
-├── TooltipOverrides: Dictionary<string, string>
-│     Key: prefab Name or Prefab string
-│     Value: custom tooltip text
+│     Value: { DisplayName?, Tooltip?, Icon? }
+│            Icon is self-describing:
+│              "vitae.png"              → local PNG in Icons/ folder
+│              "Icon_BloodOrb"         → in-game sprite name
+│              "https://example.com/x" → URL download + cache
 ├── RecipeOverrides: Dictionary<string, LilithRecipeData>
 │     Key: recipe prefab name
-│     Value: { CraftDuration, Requirements: {item→amount}, Outputs: {item→amount} }
+│     Value: { CraftDuration, Requirements, Outputs, ... }
 ├── StationRecipeOverrides: Dictionary<string, LilithStationData>
 │     Key: station prefab name
 │     Value: { RecipesToAdd: string[], RecipesToRemove: string[] }
@@ -26,99 +27,189 @@ ServerSyncPayload
 └── PlayerRecipesToRemove: List<string>
 ```
 
-### Build Pipeline (Server Side)
+### Admin Config File Format
+
+Files live under `BepInEx/config/LilithsHeart/Items/` (recursive `*.json`).
+All fields optional — omit any you don't want to change.
+
+```json
+{
+  "_readme": "Keys are prefab Name or Prefab string. All fields optional.",
+  "Item_BloodEssence_T01": {
+    "DisplayName": "Vitae",
+    "Tooltip": "Concentrated life force.",
+    "Icon": "vitae.png"
+  },
+  "Item_Weapon_Sword_T01_Bone": {
+    "DisplayName": "Bone Cleaver"
+  }
+}
+```
+
+Files load in full-path alphabetical order. Later files win per-field (not per-entry) — one file can set `DisplayName`, another can set `Icon` for the same item.
+
+---
+
+## Build Pipeline (Server Side)
 
 ```
-CookbookLoader reads JSON config files
-  → RecipeSystem / StationSystem apply changes to ECS
-  → Heart.RegisterRecipeOverrides() / RegisterStationRecipeChanges() / RegisterPlayerRecipeChanges()
-
 Heart.OnInitialize():
-  1. Build baseline payload (empty overrides)
-  2. Fire OnInitialized → modules apply changes + register overrides
-  3. Rebuild payload with accumulated overrides
+  1. LocalizationService.Initialize()
+       └── Scans all registered directories recursively for *.json
+           Heart registers ItemsDir; modules register their own dirs
+           Merges into LocalizationConfig.Overrides (per-field merge)
+
+  2. Build baseline TierBlobData[] (empty overrides)
+
+  3. Fire OnInitialized → modules apply changes + register overrides
+       └── CookbookPlugin: RecipeSystem + StationSystem apply changes
+           Heart.RegisterRecipeOverrides() / RegisterStationRecipeChanges()
+
+  4. Rebuild TierBlobData[] with accumulated overrides
 
 SyncPayloadCache.Rebuild():
-  ServerSyncPayload = {
-    ServerIdentity       = HeartConfig.ServerName (sanitized),
-    DisplayNameOverrides = LocalizationConfig.DisplayNames dict,
-    TooltipOverrides     = LocalizationConfig.Tooltips dict,
-    RecipeOverrides      = Heart._pendingRecipeOverrides,
-    StationRecipeOverrides = Heart._pendingStationRecipeOverrides,
-    PlayerRecipesToAdd   = Heart._pendingPlayerRecipesToAdd,
-    PlayerRecipesToRemove = Heart._pendingPlayerRecipesToRemove
-  }
-  Serialize, Compute SHA256 hash → store as CachedJson
+  Per tier: JSON → GZip compress → base64 encode → split into 440-char chunks
+  
+  Critical  → { ServerIdentity, PayloadHash, ItemAppearanceOverrides }
+  High      → { ServerIdentity, PayloadHash, RecipeOverrides, StationRecipeOverrides }
+               (only built if non-empty)
+  Normal    → { ServerIdentity, PayloadHash, PlayerRecipesToAdd, PlayerRecipesToRemove }
+               (only built if non-empty)
+  Low       → reserved for future modules (Machinations, Grimoire)
+  Background → reserved for large data sets (Menagerie, Bounty)
+  
+  Each tier: Checksum = SHA256(base64)[..8]
+  Cached as TierBlobData[] — immutable until next Rebuild()
 ```
 
-### Transport Protocol (Chat-Based)
+---
+
+## Transport Protocol (Tiered Chat-Based)
 
 ```
-No Unity Netcode available in IL2CPP → use ChatMessageServerEvent
+No Unity Netcode in IL2CPP → ChatMessageServerEvent with ServerChatMessageType.System
 
-SyncSender.Chunkify():
-  ┌─────────────────────────────┐
-  │ Max chunk: 450 chars        │
-  │                             │
-  │  [[LG:0]]<chunk content>    │
-  │  [[LG:1]]<chunk content>    │
-  │  ...                        │
-  │  [[LG:end]]                 │
-  └─────────────────────────────┘
+Connect event:
+  ClientConnectPatch → SyncSender.EnqueueSyncTiers(userEntity, characterEntity, userIndex)
+    └── For each TierBlobData (ordered Critical→Background):
+          SyncQueue.Enqueue(messages) where messages =
+            [[LG:begin:T:N:CKSUM]]        — begin sentinel
+            [[LG:T:0000]]<base64chunk>    — chunk (zero-padded index)
+            [[LG:T:0001]]<base64chunk>
+            ...
+            [[LG:end:T:CKSUM]]            — end sentinel
 
-Each chunk sent as:
-  ChatMessageServerEvent {
-    MessageType = ServerChatMessageType.System,
-    FromCharacter = <NetworkId>,
-    FromUser = <NetworkId>,
-    MessageText = "[[LG:N]]<content>"
-  }
-  + SendEventToUser { UserIndex = <int> }
+Per-frame drain (SchedulerPatch on ServerBootstrapSystem.OnUpdate):
+  SyncQueue.Drain() — creates at most ChunksPerFrame(10) ECS entities per frame
+    └── SyncSender.SendQueuedChunk() creates one ChatMessageServerEvent entity:
+          ChatMessageServerEvent { MessageType = System, MessageText = chunk }
+          + SendEventToUser { UserIndex = int }  ← routes to correct client
 
-Typical payload: 3-5 KB → 10-20 chunks + end sentinel
+Benefit: connect-frame spike eliminated — cost spread across frames
+Typical: 5KB appearance payload → ~12 chunks after GZip+base64 → 2 frames at 10/frame
 ```
 
-### Receive Pipeline (Client Side)
+---
+
+## Receive Pipeline (Client Side)
 
 ```
-ClientChatSystemPatch.Prefix (per-frame)
-  → SyncReceiver.TryHandleMessage(string)
-    ├── [[LG:N]] → _chunks.Add(content)  return true (consumed)
-    ├── [[LG:end]] → ProcessAccumulatedChunks()
-    └── other → return false (pass to chat UI)
-
-ProcessAccumulatedChunks():
-  json = string.Concat(_chunks)
-  payload = JsonSerializer.Deserialize<ServerSyncPayload>(json)
-  ServerRegistry.Register(connectionString, payload.ServerIdentity)
-  WriteToDiskIfChanged(payload)  — compares SHA256 hash
-  if _clientWorldReady → ApplyPayload(payload)
-  else → _pendingPayload = payload
-
-WriteToDiskIfChanged(payload):
-  path = BepInEx/config/LilithsSoul/<ServerIdentity>/sync.json
-  if exists && existing.PayloadHash == payload.PayloadHash → skip write
-  else → write JSON to disk
+ClientChatSystemPatch.Prefix (per-frame, prefix so entities destroyed before UI)
+  └── For each ChatMessageServerEvent where MessageType == System:
+        SyncReceiver.TryHandleMessage(text)
+          ├── [[LG:begin:T:N:CKSUM]] → init tier accumulator, store expected count + checksum
+          ├── [[LG:T:NNNN]]<data>   → append chunk to tier accumulator
+          ├── [[LG:end:T:CKSUM]]    → ProcessTier()
+          │     ├── Verify chunk count + checksum
+          │     ├── Concat chunks → base64 decode → GZip decompress → JSON string
+          │     ├── Deserialize tier-specific payload
+          │     ├── WriteToDiskIfChanged() — SHA256 hash comparison
+          │     └── ApplyTier() — applies immediately, no waiting for other tiers
+          └── If consumed → DestroyEntity (never shown in chat UI)
 ```
 
-### Pre-Apply (Cached Sync — UI Race Fix)
+---
+
+## Payload Application Order (FIXED — DO NOT REORDER)
+
+```
+ApplyPayload(ServerSyncPayload):
+  1. LocalizationInjector.Inject(payload)
+       └── ClearPrevious() — LoadDefaultLanguage() restores vanilla strings
+       └── Write DisplayName/Tooltip from ItemAppearanceOverrides
+           → Localization._LocalizedStrings[NameKey/DescKey AssetGuid]
+
+  2. IconPatcher.ClearPrevious()
+       └── Restore original ManagedItemData.Icon for all previously patched items
+
+  3. IconPatcher.Apply(payload)
+       └── For each ItemAppearanceOverrides entry with non-null Icon:
+             Resolution order:
+               a. Local PNG → Icons/ recursive scan, filename match
+               b. In-game sprite → Resources.FindObjectsOfTypeAll<Sprite>()
+               c. https:// URL → IconDownloader (async, callback on complete)
+             → ManagedItemData.Icon = resolvedSprite
+
+  4. RecipePatcher.Apply(payload.RecipeOverrides)
+  5. RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides)
+  6. RecipePatcher.ApplyPlayerRecipes(payload.PlayerRecipesToAdd, ...)
+```
+
+---
+
+## Pre-Apply (Cached Sync — UI Race Fix)
 
 ```
 ClientInitPatch detects world ready
   → SyncReceiver.NotifyWorldReady(connectionString)
-    → ServerRegistry.Load()  (reads servers.json)
+    → LocalizationInjector.BuildLookupTable()   — LilithsMind reflection
+    → RecipePatcher.BuildNameMap()               — PrefabCollectionSystem
+    → IconPatcher.BuildSpriteMaps()              — Resources + Icons/ scan
+    → ServerRegistry.Load()                      — reads servers.json
     → ServerRegistry.TryGetFolderName(connectionString)
     → Read sync.json from disk
     → Deserialize
     → ApplyPayload()  — BEFORE CharacterHUD builds
-    → Later: server payload arrives → ApplyPayload() again (idempotent if unchanged)
+    → Later: server payload arrives → ApplyPayload() again (idempotent if hash unchanged)
+```
+
+---
+
+## Config File Layout (Server)
+
+```
+BepInEx/config/LilithsHeart/
+  ├── LilithsHeart.cfg               — DebugLogging, ServerName
+  ├── LilithsCookbook.cfg            — GenerateAllRecipes
+  ├── Items/                         — *.json item appearance overrides (recursive)
+  │     Currencies/
+  │     Weapons/
+  │     example.json
+  ├── Recipes/                       — *.json recipe config (LilithsCookbook)
+  ├── Stations/                      — *.json station config (LilithsCookbook)
+  ├── MainQuest/                     — *.json quest text (LilithsMachinations, future)
+  └── Spells/                        — *.json spell names/tooltips (LilithsGrimoire, future)
+```
+
+## Config File Layout (Client)
+
+```
+BepInEx/config/LilithsSoul/
+  ├── LilithsSoul.cfg                — DebugLogging
+  ├── servers.json                   — connection string → folder name mapping
+  ├── Icons/                         — PNG icons + URL download cache (recursive)
+  │     vitae.png
+  │     Weapons/
+  │         bone-sword.png
+  └── <ServerIdentity>/
+        sync.json                    — cached ServerSyncPayload per server
 ```
 
 ---
 
 ## ServerEventPayload (In-Session Events)
 
-Not yet implemented, but reserved for future use:
+Reserved — not yet implemented.
 
 ```
 ServerEventPayload {
@@ -132,103 +223,4 @@ EventKind Range Reservation:
   200-299  LilithsBounty
   300-399  LilithsTreasury
   400-499  LilithsMachinations
-```
-
----
-
-## Cookbook Config File Format
-
-### recipes.json
-
-```json
-{
-  "Recipes": {
-    "Recipe_Weapon_Sword_T01_Bone": {
-      "ChangesEnabled": true,
-      "CraftDuration": 10.0,
-      "AlwaysUnlocked": true,
-      "HideInStation": false,
-      "IgnoreServerSettings": false,
-      "HudSortingOrder": 0,
-      "Requirements": [
-        { "Item": "Item_BloodEssence_T01", "Amount": 5 }
-      ],
-      "Outputs": [
-        { "Item": "Item_Weapon_Sword_T01_Bone", "Amount": 1 }
-      ],
-      "UseRepairCosts": false,
-      "RepairCosts": null,
-      "UseUnitOutputs": false,
-      "UnitOutputs": null,
-      "UseRecipeLinks": false,
-      "RecipeLinks": null
-    }
-  }
-}
-```
-
-### stations.json
-
-```json
-{
-  "Stations": {
-    "TM_Blacksmith_Stations_Standard": {
-      "ChangesEnabled": true,
-      "AddRecipes": ["Recipe_Weapon_Sword_T04_Copper_Reinforced"],
-      "RemoveRecipes": []
-    }
-  }
-}
-```
-
----
-
-## Localization Override File Format
-
-```json
-{
-  "_readme": "Keys are prefab Name or Prefab string from LilithsMind PrefabDef entries",
-  "Item_BloodEssence_T01": {
-    "DisplayName": "Red Marble",
-    "Tooltip": "A gorgeous Red Marble dropped from the living..."
-  }
-}
-```
-
-Files load alphabetically — later files win on key conflicts. Requires NameKey (for DisplayName) and DescKey (for Tooltip) to be populated in the corresponding LilithsMind PrefabDef entry.
-
----
-
-## Key Lookup Chains
-
-### Name → GUID Resolution (Server)
-
-```
-Config file name string
-  → PrefabNameResolver.TryResolve(name)
-    → Check _nameToGuid (Name alias from LilithsMind)
-    → If not found, check _prefabToGuid (Prefab string from LilithsMind)
-    → Returns PrefabGUID or PrefabGUID(0) on failure
-  → PrefabCollectionSystem._PrefabGuidToEntityMap[guid] → Entity
-```
-
-### Name → GUID Resolution (Client)
-
-```
-Payload name string
-  → RecipePatcher._nameToGuid (built from PrefabCollectionSystem + LilithsMind definitions)
-    → Built in two passes:
-      1. _PrefabDataLookup.AssetName → GUID
-      2. LilithsMind PrefabDef.Name fields → GUID
-    → Returns PrefabGUID or warning/skip
-```
-
-### Name → Localization Key Resolution (Client)
-
-```
-Payload prefab name
-  → LocalizationInjector._nameToNameGuid / _nameToDescGuid
-    → Keyed by both Prefab string and Name alias
-    → Value: AssetGuid parsed from LilithsMind NameKey/DescKey
-  → Localization._LocalizedStrings[assetGuid] = override text
 ```

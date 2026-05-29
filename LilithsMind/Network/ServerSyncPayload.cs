@@ -1,3 +1,5 @@
+using LilithsMind.Data;
+
 // ============================================================
 //  ServerSyncPayload — LilithsMind
 //  LilithsMind/Network/ServerSyncPayload.cs
@@ -6,12 +8,13 @@
 //  client connect. Shared between both projects via LilithsMind
 //  as the single source of truth.
 //
-//  [CHANGED] Migrated from duplicate definitions in:
-//              LilithsHeart/Network/ServerSyncPayload.cs
-//              LilithsSoul/Network/ServerSyncPayload.cs
-//            Both files are now deleted. This is the single
-//            definition. Heart and Soul reference it via their
-//            existing ProjectReference to LilithsMind.
+//  [CHANGED] Removed DisplayNameOverrides and TooltipOverrides.
+//            Replaced with a single ItemAppearanceOverrides dict
+//            keyed by prefab name, valued by ItemAppearanceData.
+//            ItemAppearanceData carries DisplayName, Tooltip, and
+//            Icon in one object — one dictionary lookup per item
+//            instead of three, and naturally extensible as more
+//            appearance fields are added in future.
 //
 //  Design:
 //  ───────
@@ -52,30 +55,28 @@ public sealed class ServerSyncPayload
     /// </summary>
     public string PayloadHash { get; set; } = string.Empty;
 
-    // ── Localization ────────────────────────────────────────
+    // ── Item appearance overrides ────────────────────────────
 
     /// <summary>
-    /// Display name overrides keyed by prefab name.
-    /// e.g. "Item_BloodEssence_T01" → "Vitae"
-    /// Soul injects these into Localization._LocalizedStrings
-    /// via LocalizationInjector using NameKey from LilithsMind PrefabDefs.
+    /// Item appearance overrides keyed by prefab name.
+    /// e.g. "Item_BloodEssence_T01" → { DisplayName = "Vitae",
+    ///                                   Tooltip = "...",
+    ///                                   Icon = "vitae.png" }
+    ///
+    /// All fields on ItemAppearanceData are optional — Soul skips
+    /// null fields silently. Heart only populates fields the admin
+    /// has configured. Soul applies:
+    ///   DisplayName/Tooltip → Localization._LocalizedStrings
+    ///   Icon               → ManagedItemData.Icon via IconPatcher
     /// </summary>
-    public Dictionary<string, string> DisplayNameOverrides { get; set; } = new();
-
-    /// <summary>
-    /// Tooltip overrides keyed by prefab name.
-    /// e.g. "Item_BloodEssence_T01" → "Concentrated life force..."
-    /// Soul injects these into Localization._LocalizedStrings
-    /// via LocalizationInjector using DescKey from LilithsMind PrefabDefs.
-    /// </summary>
-    public Dictionary<string, string> TooltipOverrides { get; set; } = new();
+    public Dictionary<string, ItemAppearanceData> ItemAppearanceOverrides { get; set; } = new();
 
     // ── Recipe overrides ────────────────────────────────────
 
     /// <summary>
     /// Recipe data overrides keyed by recipe prefab name.
-    /// Soul patches RecipeData, CookbookItemData Buffer, CookbookItemData Buffer
-    /// and RecipeHashLookupMap on client prefab entities from this dict.
+    /// Soul patches RecipeData, CookbookItemData Buffer,
+    /// and RecipeHashLookupMap on client prefab entities.
     /// </summary>
     public Dictionary<string, LilithRecipeData> RecipeOverrides { get; set; } = new();
 
@@ -90,15 +91,13 @@ public sealed class ServerSyncPayload
 
     /// <summary>
     /// Recipe prefab names to add to the client player's
-    /// WorkstationRecipesBuffer. Soul patches the local player entity's
-    /// buffer so the player crafting menu reflects server-side additions.
+    /// WorkstationRecipesBuffer.
     /// </summary>
     public List<string> PlayerRecipesToAdd { get; set; } = new();
 
     /// <summary>
     /// Recipe prefab names to remove from the client player's
-    /// WorkstationRecipesBuffer. Soul patches the local player entity's
-    /// buffer so the player crafting menu reflects server-side removals.
+    /// WorkstationRecipesBuffer.
     /// </summary>
     public List<string> PlayerRecipesToRemove { get; set; } = new();
 }

@@ -130,7 +130,7 @@ public static class SyncSender
     ///   ...
     ///   [[LG:end:T:CKSUM]]
     /// </summary>
-    static IEnumerable<string> BuildTierMessages(TierBlob blob)
+    static IEnumerable<string> BuildTierMessages(TierBlobData blob)
     {
         int t = (int)blob.Tier;
 

@@ -1,5 +1,3 @@
-using System.IO.Compression;
-using System.Text;
 using System.Text.Json;
 using LilithsSoul.Config;
 using LilithsSoul.Foundation;
@@ -8,38 +6,45 @@ using LilithsMind.Network;
 
 // ============================================================
 //  SyncReceiver — LilithsSoul
-//  LilithsSoul/Network/SyncReceiver.cs
 //
 //  Intercepts system chat messages from Heart and reassembles
-//  the tiered compressed ServerSyncPayload.
+//  the chunked ServerSyncPayload.
 //
-//  [CHANGED] Complete rewrite for tiered sync architecture.
-//            Previous version accumulated one flat chunk list.
-//            Now maintains a separate accumulator per SyncTier.
-//            Each tier is an independent compressed blob with its
-//            own begin/end sentinels and checksum validation.
+//  Chunk protocol:
+//  ───────────────
+//  Heart sends N messages of the form [[LG:N]]<content>,
+//  followed by a final [[LG:end]] sentinel.
+//  SyncReceiver accumulates content strings in order and
+//  processes the full JSON when end is received.
 //
-//  Protocol:
-//  ──────────
-//  [[LG:begin:T:N:CKSUM]]   — begin sentinel — initialise tier T state
-//  [[LG:T:NNNN]]<data>      — chunk — accumulate content for tier T
-//  [[LG:end:T:CKSUM]]       — end sentinel — validate + decompress + apply
+//  Integration point:
+//  ──────────────────
+//  ClientChatSystemPatch calls TryHandleMessage(string) for
+//  every incoming system message. Returns true if the message
+//  was a LilithsGarden chunk (consumed), false otherwise.
 //
-//  Decompression pipeline:
-//  ────────────────────────
-//  Accumulated Base64 chunks → concat → Base64 decode → GZip
-//  decompress → JSON deserialize → apply to game systems.
+//  [CHANGED] ApplyPayload now calls IconPatcher.ClearPrevious()
+//            and IconPatcher.Apply() alongside the existing
+//            LocalizationInjector and RecipePatcher calls.
+//            IconPatcher must run after LocalizationInjector
+//            as it is independent but benefits from world being
+//            confirmed ready.
 //
-//  Disk cache:
-//  ────────────
-//  Disk cache (sync.json) is still written as full JSON from the
-//  first Critical tier payload which carries ServerIdentity and
-//  PayloadHash. Soul reads from disk on reconnect to pre-apply
-//  before the server payload arrives.
+//  [CHANGED] NotifyWorldReady now calls IconPatcher.BuildSpriteMaps()
+//            in addition to LocalizationInjector.BuildLookupTable()
+//            and RecipePatcher.BuildNameMap().
 //
-//  [PERFORMANCE] Per-message check is O(1) string prefix match.
-//                Decompression and injection run once per tier
-//                on end sentinel receipt — not per-frame.
+//  Client Payload Application Order (FIXED — DO NOT REORDER):
+//  ────────────────────────────────────────────────────────────
+//  1. LocalizationInjector.Inject()         — text into _LocalizedStrings
+//  2. IconPatcher.Apply()                   — sprites into ManagedItemData
+//  3. RecipePatcher.Apply()                 — recipe ECS data
+//  4. RecipePatcher.ApplyStationRecipes()   — station buffer patches
+//  5. RecipePatcher.ApplyPlayerRecipes()    — player buffer patches
+//
+//  [PERFORMANCE] Per-message check is a string.StartsWith on the
+//                hot chat path — effectively free outside connect.
+//                Deserialization and disk I/O run once per connect.
 // ============================================================
 
 namespace LilithsSoul.Network;
@@ -47,49 +52,42 @@ namespace LilithsSoul.Network;
 public static class SyncReceiver
 {
     private const string LOG_SOURCE   = "LilithsSoul.SyncReceiver";
-    private const string BEGIN_PREFIX = "[[LG:begin:";
     private const string CHUNK_PREFIX = "[[LG:";
-    private const string END_PREFIX   = "[[LG:end:";
+    private const string CHUNK_END    = "[[LG:end]]";
 
-    // Per-tier accumulation state.
-    static readonly Dictionary<int, List<string>> _tierChunks    = new();
-    static readonly Dictionary<int, string>       _tierChecksums = new();
-    static readonly Dictionary<int, int>          _tierExpected  = new();
+    static readonly List<string> _chunks = [];
 
-    // World readiness and pending payload state.
-    static bool               _clientWorldReady;
+    static bool _clientWorldReady;
     static ServerSyncPayload? _pendingPayload;
-    static string             _connectionString = string.Empty;
-
-    // Tracks identity received in Critical tier for disk writes.
-    static string _serverIdentity = string.Empty;
-    static string _payloadHash    = string.Empty;
+    static string _connectionString = string.Empty;
 
     // ── Called from ClientChatSystemPatch ────────────────────
 
     /// <summary>
-    /// Inspects an incoming system message. Returns true if consumed.
+    /// Inspects an incoming system message. If it is a LilithsGarden
+    /// chunk, accumulates it and returns true (consumed).
+    /// Returns false for unrelated messages.
     /// </summary>
     public static bool TryHandleMessage(string message)
     {
         if (string.IsNullOrEmpty(message)) return false;
 
-        if (message.StartsWith(BEGIN_PREFIX))
+        if (message == CHUNK_END)
         {
-            HandleBeginSentinel(message);
-            return true;
-        }
-
-        if (message.StartsWith(END_PREFIX))
-        {
-            HandleEndSentinel(message);
+            ProcessAccumulatedChunks();
             return true;
         }
 
         if (message.StartsWith(CHUNK_PREFIX))
         {
-            HandleChunk(message);
-            return true;
+            int closeBracket = message.IndexOf("]]", CHUNK_PREFIX.Length,
+                StringComparison.Ordinal);
+
+            if (closeBracket >= 0)
+            {
+                _chunks.Add(message[(closeBracket + 2)..]);
+                return true;
+            }
         }
 
         return false;
@@ -97,243 +95,162 @@ public static class SyncReceiver
 
     /// <summary>
     /// Called by ClientInitPatch when the client ECS world is ready.
+    /// Builds all lookup tables, pre-applies cached sync, and applies
+    /// any payload that arrived before world was ready.
+    ///
+    /// [CHANGED] Now calls IconPatcher.BuildSpriteMaps() alongside
+    ///           LocalizationInjector.BuildLookupTable() and
+    ///           RecipePatcher.BuildNameMap().
     /// </summary>
     public static void NotifyWorldReady(string connectionString)
     {
         _clientWorldReady = true;
         _connectionString = connectionString;
 
+        // Build all lookup tables now that game data is available.
         LocalizationInjector.BuildLookupTable();
         RecipePatcher.BuildNameMap();
+
+        // [CHANGED] Build sprite maps for IconPatcher.
+        // Resources.FindObjectsOfTypeAll<Sprite>() requires world ready.
+        IconPatcher.BuildSpriteMaps();
 
         TryPreApplyCachedSync(connectionString);
 
         if (_pendingPayload != null)
         {
-            SoulLogger.Info(LOG_SOURCE, "Client world now ready — applying queued sync payload.");
+            SoulLogger.Info(LOG_SOURCE,
+                "Client world now ready — applying queued sync payload.");
             ApplyPayload(_pendingPayload);
             _pendingPayload = null;
         }
     }
 
-    // ── Sentinel handlers ─────────────────────────────────────
+    // ── Internal ─────────────────────────────────────────────
 
-    static void HandleBeginSentinel(string message)
+    static void TryPreApplyCachedSync(string connectionString)
     {
-        // Format: [[LG:begin:T:N:CKSUM]]
-        var inner = message[BEGIN_PREFIX.Length..^2];
-        var parts = inner.Split(':');
-        if (parts.Length != 3) { SoulLogger.Warning(LOG_SOURCE, $"Malformed begin sentinel: '{message}'"); return; }
+        ServerRegistry.Load();
 
-        if (!int.TryParse(parts[0], out int tier) || !int.TryParse(parts[1], out int count))
+        if (string.IsNullOrEmpty(connectionString))
         {
-            SoulLogger.Warning(LOG_SOURCE, $"Could not parse tier/count from: '{message}'");
+            SoulLogger.Debug(LOG_SOURCE,
+                "No connection string — cannot pre-apply cached sync.");
             return;
         }
 
-        _tierChunks[tier]    = new List<string>(count);
-        _tierChecksums[tier] = parts[2];
-        _tierExpected[tier]  = count;
-
-        SoulLogger.Debug(LOG_SOURCE, $"Tier {tier} begin — expecting {count} chunk(s).");
-    }
-
-    static void HandleChunk(string message)
-    {
-        // Format: [[LG:T:NNNN]]<data>
-        int closeBracket = message.IndexOf("]]", CHUNK_PREFIX.Length, StringComparison.Ordinal);
-        if (closeBracket < 0) return;
-
-        var header  = message[CHUNK_PREFIX.Length..closeBracket];
-        var content = message[(closeBracket + 2)..];
-        var hParts  = header.Split(':');
-        if (hParts.Length != 2) return;
-
-        if (!int.TryParse(hParts[0], out int tier)) return;
-
-        if (!_tierChunks.TryGetValue(tier, out var chunks))
+        if (!ServerRegistry.TryGetFolderName(connectionString, out var folderName))
         {
-            SoulLogger.Warning(LOG_SOURCE, $"Chunk for tier {tier} with no begin sentinel — discarding.");
+            SoulLogger.Info(LOG_SOURCE,
+                $"No cached sync for '{connectionString}' — " +
+                "waiting for server payload.");
             return;
         }
 
-        chunks.Add(content);
-    }
-
-    static void HandleEndSentinel(string message)
-    {
-        // Format: [[LG:end:T:CKSUM]]
-        var inner = message[END_PREFIX.Length..^2];
-        var parts = inner.Split(':');
-        if (parts.Length != 2) { SoulLogger.Warning(LOG_SOURCE, $"Malformed end sentinel: '{message}'"); return; }
-
-        if (!int.TryParse(parts[0], out int tier))
+        var syncFile = SoulPathIndex.SyncFile(folderName);
+        if (!File.Exists(syncFile))
         {
-            SoulLogger.Warning(LOG_SOURCE, $"Could not parse tier from end sentinel: '{message}'");
+            SoulLogger.Info(LOG_SOURCE,
+                $"Sync file not found for '{folderName}' — " +
+                "waiting for server payload.");
             return;
         }
 
-        string receivedChecksum = parts[1];
-
-        if (!_tierChunks.TryGetValue(tier, out var chunks))
-        {
-            SoulLogger.Warning(LOG_SOURCE, $"End sentinel for tier {tier} with no accumulated chunks.");
-            return;
-        }
-
-        // Validate chunk count.
-        if (_tierExpected.TryGetValue(tier, out int expected) && chunks.Count != expected)
-        {
-            SoulLogger.Warning(LOG_SOURCE,
-                $"Tier {tier} count mismatch — expected {expected}, got {chunks.Count}. Discarding.");
-            ClearTier(tier);
-            return;
-        }
-
-        // Validate checksum.
-        var assembled = string.Concat(chunks);
-        var hash      = ComputeChecksum(assembled);
-
-        if (!string.Equals(hash, receivedChecksum, StringComparison.OrdinalIgnoreCase))
-        {
-            SoulLogger.Warning(LOG_SOURCE,
-                $"Tier {tier} checksum mismatch — expected {receivedChecksum}, got {hash}. Discarding.");
-            ClearTier(tier);
-            return;
-        }
-
-        SoulLogger.Debug(LOG_SOURCE, $"Tier {tier} complete — {chunks.Count} chunk(s), checksum valid.");
-        ProcessTierBlob(tier, assembled);
-        ClearTier(tier);
-    }
-
-    // ── Tier processing ───────────────────────────────────────
-
-    static void ProcessTierBlob(int tier, string base64Data)
-    {
         try
         {
-            var compressed = Convert.FromBase64String(base64Data);
-            var json       = GZipDecompress(compressed);
+            var json    = File.ReadAllText(syncFile);
+            var payload = JsonSerializer.Deserialize<ServerSyncPayload>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            SoulLogger.Debug(LOG_SOURCE,
-                $"Tier {tier} decompressed: {compressed.Length} bytes → {json.Length} chars.");
-
-            switch ((SyncTier)tier)
+            if (payload == null)
             {
-                case SyncTier.Critical: ProcessCriticalTier(json); break;
-                case SyncTier.High:     ProcessHighTier(json);     break;
-                case SyncTier.Normal:   ProcessNormalTier(json);   break;
-                case SyncTier.Low:      ProcessLowTier(json);      break;
-                default: SoulLogger.Warning(LOG_SOURCE, $"Unknown tier {tier}."); break;
+                SoulLogger.Warning(LOG_SOURCE,
+                    $"Cached sync.json for '{folderName}' deserialized to null.");
+                return;
             }
+
+            SoulLogger.Info(LOG_SOURCE,
+                $"Pre-applying cached sync for '{folderName}' " +
+                $"(hash: {payload.PayloadHash}) before UI builds.");
+
+            ApplyPayload(payload);
         }
         catch (Exception ex)
         {
-            SoulLogger.Error(LOG_SOURCE, $"Failed to process tier {tier} blob: {ex.Message}");
+            SoulLogger.Warning(LOG_SOURCE,
+                $"Failed to pre-apply cached sync for '{folderName}': {ex.Message}");
         }
     }
 
-    static void ProcessCriticalTier(string json)
+    static void ProcessAccumulatedChunks()
     {
-        var opts    = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var section = JsonSerializer.Deserialize<CriticalTierSection>(json, opts);
-        if (section == null) return;
-
-        _serverIdentity = section.ServerIdentity ?? string.Empty;
-        _payloadHash    = section.PayloadHash    ?? string.Empty;
-
-        SoulLogger.Info(LOG_SOURCE,
-            $"Critical tier received from '{_serverIdentity}' (hash: {_payloadHash}).");
-
-        var payload = new ServerSyncPayload
+        if (_chunks.Count == 0)
         {
-            ServerIdentity       = _serverIdentity,
-            PayloadHash          = _payloadHash,
-            DisplayNameOverrides = section.DisplayNameOverrides ?? new(),
-            TooltipOverrides     = section.TooltipOverrides     ?? new(),
-        };
-
-        if (!string.IsNullOrEmpty(_connectionString))
-            ServerRegistry.Register(_connectionString, _serverIdentity);
-
-        WriteToDiskIfChanged(payload);
-
-        if (_clientWorldReady)
-            LocalizationInjector.Inject(payload);
-        else
-            _pendingPayload = payload;
-    }
-
-    static void ProcessHighTier(string json)
-    {
-        var opts    = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var section = JsonSerializer.Deserialize<HighTierSection>(json, opts);
-        if (section == null) return;
-
-        SoulLogger.Info(LOG_SOURCE,
-            $"High tier received — {section.RecipeOverrides?.Count ?? 0} recipe(s), " +
-            $"{section.StationRecipeOverrides?.Count ?? 0} station(s).");
-
-        if (!_clientWorldReady)
-        {
-            SoulLogger.Debug(LOG_SOURCE, "World not ready — High tier queued.");
-            if (_pendingPayload != null)
-                MergeHighSection(_pendingPayload, section);
+            SoulLogger.Warning(LOG_SOURCE,
+                "Received [[LG:end]] but chunk list is empty — ignoring.");
             return;
         }
 
-        ApplyHighSection(section);
+        var json = string.Concat(_chunks);
+        _chunks.Clear();
+
+        try
+        {
+            var payload = JsonSerializer.Deserialize<ServerSyncPayload>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (payload == null)
+            {
+                SoulLogger.Warning(LOG_SOURCE,
+                    "Deserialized payload is null — ignoring.");
+                return;
+            }
+
+            SoulLogger.Info(LOG_SOURCE,
+                $"Sync payload received from '{payload.ServerIdentity}' " +
+                $"(hash: {payload.PayloadHash}, " +
+                $"appearances: {payload.ItemAppearanceOverrides.Count}, " +
+                $"recipes: {payload.RecipeOverrides.Count}).");
+
+            if (!string.IsNullOrEmpty(_connectionString))
+                ServerRegistry.Register(_connectionString, payload.ServerIdentity);
+
+            WriteToDiskIfChanged(payload);
+
+            if (_clientWorldReady)
+                ApplyPayload(payload);
+            else
+                _pendingPayload = payload;
+        }
+        catch (Exception ex)
+        {
+            SoulLogger.Error(LOG_SOURCE,
+                $"Failed to process sync payload: {ex.Message}");
+            _chunks.Clear();
+        }
     }
-
-    static void ProcessNormalTier(string json)
-        => SoulLogger.Debug(LOG_SOURCE, "Normal tier received — no handlers registered yet.");
-
-    static void ProcessLowTier(string json)
-        => SoulLogger.Debug(LOG_SOURCE, "Low tier received — no handlers registered yet.");
-
-    // ── Apply helpers ─────────────────────────────────────────
 
     static void ApplyPayload(ServerSyncPayload payload)
     {
+        // 1. Localization — display names and tooltips into _LocalizedStrings.
         LocalizationInjector.Inject(payload);
+
+        // 2. Icons — sprites into ManagedItemData.Icon.
+        // [CHANGED] ClearPrevious restores original icons before applying new ones.
+        IconPatcher.ClearPrevious();
+        IconPatcher.Apply(payload);
+
+        // 3. Recipe patching — ingredients, outputs, craft duration.
         RecipePatcher.Apply(payload.RecipeOverrides);
+
+        // 4. Station recipe patching — WorkstationRecipesBuffer on placed stations.
         RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides);
-        RecipePatcher.ApplyPlayerRecipes(payload.PlayerRecipesToAdd, payload.PlayerRecipesToRemove);
+
+        // 5. Player recipe patching — add/remove from client player entity buffer.
+        RecipePatcher.ApplyPlayerRecipes(
+            payload.PlayerRecipesToAdd,
+            payload.PlayerRecipesToRemove);
     }
-
-    static void ApplyHighSection(HighTierSection section)
-    {
-        if (section.RecipeOverrides != null)
-            RecipePatcher.Apply(section.RecipeOverrides);
-
-        if (section.StationRecipeOverrides != null)
-            RecipePatcher.ApplyStationRecipes(section.StationRecipeOverrides);
-
-        if (section.PlayerRecipesToAdd != null || section.PlayerRecipesToRemove != null)
-            RecipePatcher.ApplyPlayerRecipes(
-                section.PlayerRecipesToAdd    ?? new(),
-                section.PlayerRecipesToRemove ?? new());
-    }
-
-    static void MergeHighSection(ServerSyncPayload payload, HighTierSection section)
-    {
-        if (section.RecipeOverrides != null)
-            foreach (var (k, v) in section.RecipeOverrides)
-                payload.RecipeOverrides[k] = v;
-
-        if (section.StationRecipeOverrides != null)
-            foreach (var (k, v) in section.StationRecipeOverrides)
-                payload.StationRecipeOverrides[k] = v;
-
-        if (section.PlayerRecipesToAdd != null)
-            payload.PlayerRecipesToAdd.AddRange(section.PlayerRecipesToAdd);
-
-        if (section.PlayerRecipesToRemove != null)
-            payload.PlayerRecipesToRemove.AddRange(section.PlayerRecipesToRemove);
-    }
-
-    // ── Disk cache ────────────────────────────────────────────
 
     static void WriteToDiskIfChanged(ServerSyncPayload payload)
     {
@@ -349,107 +266,32 @@ public static class SyncReceiver
 
                 if (existing?.PayloadHash == payload.PayloadHash)
                 {
-                    SoulLogger.Debug(LOG_SOURCE, $"Hash unchanged ({payload.PayloadHash}) — skipping disk write.");
+                    SoulLogger.Debug(LOG_SOURCE,
+                        $"Payload hash unchanged ({payload.PayloadHash}) " +
+                        "— skipping disk write.");
                     return;
                 }
             }
-            catch { /* Malformed cache — overwrite. */ }
+            catch
+            {
+                // Malformed cache — overwrite below.
+            }
         }
 
         try
         {
             Directory.CreateDirectory(SoulPathIndex.ServerDir(payload.ServerIdentity));
             File.WriteAllText(syncFile,
-                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-            SoulLogger.Info(LOG_SOURCE, $"Sync payload cached to '{syncFile}'.");
-        }
-        catch (Exception ex)
-        {
-            SoulLogger.Warning(LOG_SOURCE, $"Failed to write sync payload to disk: {ex.Message}");
-        }
-    }
-
-    static void TryPreApplyCachedSync(string connectionString)
-    {
-        ServerRegistry.Load();
-
-        if (string.IsNullOrEmpty(connectionString))
-        {
-            SoulLogger.Debug(LOG_SOURCE, "No connection string — cannot pre-apply cached sync.");
-            return;
-        }
-
-        if (!ServerRegistry.TryGetFolderName(connectionString, out var folderName))
-        {
-            SoulLogger.Info(LOG_SOURCE, $"No cached sync for '{connectionString}' — waiting for payload.");
-            return;
-        }
-
-        var syncFile = SoulPathIndex.SyncFile(folderName);
-        if (!File.Exists(syncFile))
-        {
-            SoulLogger.Info(LOG_SOURCE, $"Sync file not found for '{folderName}' — waiting for payload.");
-            return;
-        }
-
-        try
-        {
-            var json    = File.ReadAllText(syncFile);
-            var payload = JsonSerializer.Deserialize<ServerSyncPayload>(json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (payload == null) { SoulLogger.Warning(LOG_SOURCE, "Cached sync.json deserialized to null."); return; }
+                JsonSerializer.Serialize(payload,
+                    new JsonSerializerOptions { WriteIndented = true }));
 
             SoulLogger.Info(LOG_SOURCE,
-                $"Pre-applying cached sync for '{folderName}' (hash: {payload.PayloadHash}).");
-
-            ApplyPayload(payload);
+                $"Sync payload cached to '{syncFile}'.");
         }
         catch (Exception ex)
         {
-            SoulLogger.Warning(LOG_SOURCE, $"Failed to pre-apply cached sync: {ex.Message}");
+            SoulLogger.Warning(LOG_SOURCE,
+                $"Failed to write sync payload to disk: {ex.Message}");
         }
-    }
-
-    // ── Compression ───────────────────────────────────────────
-
-    static string GZipDecompress(byte[] compressed)
-    {
-        using var input  = new MemoryStream(compressed);
-        using var gzip   = new GZipStream(input, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        gzip.CopyTo(output);
-        return Encoding.UTF8.GetString(output.ToArray());
-    }
-
-    static void ClearTier(int tier)
-    {
-        _tierChunks.Remove(tier);
-        _tierChecksums.Remove(tier);
-        _tierExpected.Remove(tier);
-    }
-
-    static string ComputeChecksum(string input)
-    {
-        var bytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..6];
-    }
-
-    // ── Tier section DTOs ─────────────────────────────────────
-
-    sealed class CriticalTierSection
-    {
-        public string?                     ServerIdentity       { get; set; }
-        public string?                     PayloadHash          { get; set; }
-        public Dictionary<string, string>? DisplayNameOverrides { get; set; }
-        public Dictionary<string, string>? TooltipOverrides     { get; set; }
-    }
-
-    sealed class HighTierSection
-    {
-        public Dictionary<string, LilithRecipeData>?  RecipeOverrides        { get; set; }
-        public Dictionary<string, LilithStationData>? StationRecipeOverrides { get; set; }
-        public List<string>?                           PlayerRecipesToAdd     { get; set; }
-        public List<string>?                           PlayerRecipesToRemove  { get; set; }
     }
 }
