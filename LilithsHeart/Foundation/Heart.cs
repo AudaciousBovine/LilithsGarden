@@ -81,6 +81,7 @@ public static class Heart
 
         HeartConfigBuilder.GenerateIfRequested();
 
+        LocalizationService.RegisterDirectory(HeartPathIndex.ItemsDir);
         LocalizationService.Initialize();
 
         _serverIdentity = ResolveServerIdentity();

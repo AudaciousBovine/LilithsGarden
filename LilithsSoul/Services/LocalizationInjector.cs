@@ -42,7 +42,7 @@ namespace LilithsSoul.Services;
 
 public static class LocalizationInjector
 {
-    private const string LOG_SOURCE = "LilithsSoul.LocalizationInjector";
+    private const string LOG_SOURCE      = "LilithsSoul.LocalizationInjector";
     private const string PrefabNamespace = "LilithsMind.Prefabs.Definitions";
 
     // Built once at world ready from LilithsMind definitions.
@@ -66,8 +66,8 @@ public static class LocalizationInjector
         _nameToNameGuid.Clear();
         _nameToDescGuid.Clear();
 
-        var mindAssembly     = typeof(PrefabDef).Assembly;
-        var definitionTypes  = mindAssembly
+        var mindAssembly    = typeof(PrefabDef).Assembly;
+        var definitionTypes = mindAssembly
             .GetTypes()
             .Where(t =>
                 t.IsClass &&
@@ -100,18 +100,26 @@ public static class LocalizationInjector
                 if (def.NameKey is not null)
                 {
                     var nameGuid = ParseAssetGuid(def.NameKey);
+
+                    // [CHANGED] Use IsNullOrEmpty instead of is not null —
+                    // Name is a nullable string? and could be empty string.
+                    // Null or empty keys cause ArgumentNullException in Dictionary.
                     _nameToNameGuid[def.Prefab] = nameGuid;
-                    if (def.Name is not null)
+                    if (!string.IsNullOrEmpty(def.Name))
                         _nameToNameGuid[def.Name] = nameGuid;
+
                     nameCount++;
                 }
 
                 if (def.DescKey is not null)
                 {
                     var descGuid = ParseAssetGuid(def.DescKey);
+
+                    // [CHANGED] Same guard as above for DescKey entries.
                     _nameToDescGuid[def.Prefab] = descGuid;
-                    if (def.Name is not null)
+                    if (!string.IsNullOrEmpty(def.Name))
                         _nameToDescGuid[def.Name] = descGuid;
+
                     descCount++;
                 }
             }
