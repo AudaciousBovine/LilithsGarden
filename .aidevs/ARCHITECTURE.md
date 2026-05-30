@@ -62,7 +62,7 @@ InitializationPatch.Postfix()
         │     └── RegisterDirectory(ItemsDir) — Heart registers Items/
         │     └── Modules may register additional dirs before this fires
         │     └── Scans all registered dirs recursively for *.json
-        │     └── Merges into LocalizationConfig (per-field, alphabetical)
+        │     └── Merges into ItemAppearanceConfig (per-field, alphabetical)
         │
         ├── Build baseline TierBlobData[] (empty overrides)
         │

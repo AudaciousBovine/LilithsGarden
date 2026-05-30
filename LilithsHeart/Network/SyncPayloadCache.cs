@@ -96,7 +96,7 @@ public static class SyncPayloadCache
             {
                 ServerIdentity          = identity,
                 ItemAppearanceOverrides = new Dictionary<string, ItemAppearanceData>(
-                    LocalizationConfig.Overrides),
+                    ItemAppearanceConfig.Overrides),
             };
 
             // ── High tier — recipes + stations ───────────────

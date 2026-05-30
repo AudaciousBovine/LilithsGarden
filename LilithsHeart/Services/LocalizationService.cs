@@ -18,16 +18,20 @@ using LilithsHeart.Foundation;
 //
 //  Each registered directory is scanned recursively for *.json.
 //  All files sorted by full path alphabetically, merged in order.
-//  Later files win on a per-field basis via LocalizationConfig.AddOverride().
+//  Later files win on a per-field basis via ItemAppearanceConfig.AddOverride().
 //
-//  [CHANGED] Example file generation removed — moved to HeartConfigBuilder.
-//            LocalizationService is a loader only. HeartConfigBuilder
-//            handles all example/generation concerns, called from
-//            Heart.OnInitialize() before this service loads files.
+//  [CHANGED] Example file generation removed entirely — moved to
+//            HeartConfigBuilder. LocalizationService is a loader
+//            only. HeartConfigBuilder handles all example/generation
+//            concerns, called from Heart.OnInitialize() before
+//            this service initializes.
+//
+//  [CHANGED] GenerateLocalizationExample check removed from
+//            Initialize() — HeartConfigBuilder now owns this.
 //
 //  [PERFORMANCE] All files read once at world ready. No file I/O
 //                after initialization unless Reload() is called.
-//                Per-field merge in LocalizationConfig.AddOverride() is O(1).
+//                Per-field merge in ItemAppearanceConfig.AddOverride() is O(1).
 // ============================================================
 
 namespace LilithsHeart.Services;
@@ -61,8 +65,9 @@ public static class LocalizationService
 
     /// <summary>
     /// Creates registered directories and loads all override files
-    /// into LocalizationConfig.
+    /// into ItemAppearanceConfig.
     /// Called once by Heart.OnInitialize() after HeartConfigBuilder runs.
+    /// Example file generation is handled by HeartConfigBuilder — not here.
     /// </summary>
     public static void Initialize()
     {
@@ -73,13 +78,13 @@ public static class LocalizationService
     }
 
     /// <summary>
-    /// Clears LocalizationConfig and reloads all files from all registered
+    /// Clears ItemAppearanceConfig and reloads all files from all registered
     /// directories. Notifies Heart so the sync payload is rebuilt.
     /// Called by admin reload commands.
     /// </summary>
     public static void Reload()
     {
-        LocalizationConfig.Clear();
+        ItemAppearanceConfig.Clear();
         HeartLogger.Info(LOG_SOURCE, "Reloading localization overrides...");
         Load();
         Heart.OnLocalizationReloaded();
@@ -103,17 +108,17 @@ public static class LocalizationService
             HeartLogger.Info(LOG_SOURCE,
                 "No localization JSON files found in any registered directory — " +
                 "overrides disabled.");
-            LocalizationConfig.MarkLoaded();
+            ItemAppearanceConfig.MarkLoaded();
             return;
         }
 
         foreach (var file in files)
             LoadFile(file);
 
-        LocalizationConfig.MarkLoaded();
+        ItemAppearanceConfig.MarkLoaded();
 
         HeartLogger.Info(LOG_SOURCE,
-            $"Loaded {LocalizationConfig.Overrides.Count} item appearance override(s) " +
+            $"Loaded {ItemAppearanceConfig.Overrides.Count} item appearance override(s) " +
             $"from {files.Length} file(s) across {_registeredDirectories.Count} directory(s).");
     }
 
@@ -159,7 +164,7 @@ public static class LocalizationService
                 // Skip entirely empty entries.
                 if (displayName is null && tooltip is null && icon is null) continue;
 
-                LocalizationConfig.AddOverride(key, new ItemAppearanceData
+                ItemAppearanceConfig.AddOverride(key, new ItemAppearanceData
                 {
                     DisplayName = displayName,
                     Tooltip     = tooltip,

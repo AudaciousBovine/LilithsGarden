@@ -1,38 +1,39 @@
 using BepInEx.Configuration;
 using LilithsHeart.Foundation;
 
+// ============================================================
+//  HeartConfig — LilithsHeart
+//  LilithsHeart/Config/HeartConfig.cs
+//
+//  BepInEx config bindings for LilithsHeart core settings.
+//
+//  [CHANGED] Removed Lazy<T> wrappers — ConfigEntry<T>.Value
+//            already caches after first read. Lazy<T> introduced
+//            a hot-reload bug where re-reads never fired.
+//
+//  [CHANGED] Removed StartingInventorySize and
+//            GlobalPlayerMovementSpeedMultiplier — gameplay
+//            settings belong in the module that owns the feature.
+//
+//  [CHANGED] GenerateLocalizationExample renamed to
+//            GenerateExampleConfigs. Now triggers example
+//            generation for all installed features via
+//            HeartConfigBuilder, not just localization.
+//            DisableGenerateLocalizationExample() renamed to
+//            DisableGenerateExampleConfigs() to match.
+//
+//  [ADDED] ChunksPerFrame — controls the tiered sync send rate.
+// ============================================================
+
 namespace LilithsHeart.Config;
 
-// [CHANGED] Removed Lazy<T> wrappers from all config accessors.
-//           BepInEx's ConfigEntry<T>.Value already caches the parsed value
-//           after the first read. Lazy<T> on top of that added no benefit and
-//           introduced a hot-reload bug: once evaluated, Lazy<T> never
-//           re-reads even if the ConfigFile is reloaded at runtime.
-//           Reading .Value directly matches the pattern used in CookbookConfig
-//           and is safe — no file I/O occurs after Initialize().
-//
-// [CHANGED] Removed StartingInventorySize and GlobalPlayerMovementSpeedMultiplier.
-//           HeartConfig is infrastructure-only. Gameplay settings belong in the
-//           module that owns the feature, not in the shared core.
-//
-// [ADDED] GenerateLocalizationExample — opt-in example file generation.
-//         Follows the same pattern as CookbookConfig.GenerateAllRecipes.
-//
-// [ADDED] ChunksPerFrame — controls the tiered sync send rate.
-//         Limits how many chat message entities are created per frame
-//         when sending sync payloads to connecting clients.
-//
-// [CHANGED] Corrected the example-file path in GenerateLocalizationExample's
-//           summary and config description from the old Localization/ folder
-//           to Items/. The writer (LocalizationService.EnsureExampleFile)
-//           has always targeted Items/ — only these comments were stale.
 public static class HeartConfig
 {
     private const string LOG_SOURCE = "LilithsHeart.HeartConfig";
 
-    static ConfigEntry<bool> _debugLogging                = null!;
-    static ConfigEntry<bool> _generateLocalizationExample = null!;
-    static ConfigEntry<int>  _chunksPerFrame              = null!;
+    static ConfigEntry<bool> _debugLogging          = null!;
+    static ConfigEntry<bool> _generateExampleConfigs = null!;
+    static ConfigEntry<int>  _chunksPerFrame         = null!;
 
     public static ConfigEntry<string> ServerName { get; private set; } = null!;
 
@@ -40,11 +41,11 @@ public static class HeartConfig
     public static int  ChunksPerFrame => _chunksPerFrame.Value;
 
     /// <summary>
-    /// When true, LocalizationService writes an example localization JSON
-    /// to BepInEx/config/LilithsHeart/Items/example.json on next boot.
-    /// Resets to false automatically after the file is written.
+    /// When true, HeartConfigBuilder generates example config files
+    /// for all installed features on next boot. Resets to false
+    /// automatically after generation completes.
     /// </summary>
-    public static bool GenerateLocalizationExample => _generateLocalizationExample.Value;
+    public static bool GenerateExampleConfigs => _generateExampleConfigs.Value;
 
     public static void Initialize(ConfigFile config)
     {
@@ -60,35 +61,25 @@ public static class HeartConfig
             section:      "General",
             key:          "ServerName",
             defaultValue: "LilithsGarden",
-            description:  "Unique name for this server. Used by Soul clients to cache server-specific " +
-                          "configs. Change this if you run multiple LilithsGarden servers."
+            description:  "Unique name for this server. Used by Soul clients to cache " +
+                          "server-specific configs. Change this if you run multiple " +
+                          "LilithsGarden servers."
         );
 
-        _generateLocalizationExample = config.Bind(
+        _generateExampleConfigs = config.Bind(
             section:      "Generation",
-            key:          "GenerateLocalizationExample",
+            key:          "GenerateExampleConfigs",
             defaultValue: false,
-            description:  "When set to true, generates an example localization JSON file at " +
-                          "BepInEx/config/LilithsHeart/Items/example.json on next boot. " +
-                          "Use this as a starting point for renaming items, spells, and other " +
-                          "game objects. This setting resets to false automatically after generation."
+            description:  "When set to true, generates example config files for all " +
+                          "installed LilithsGarden modules on next boot. Includes Items/, " +
+                          "Recipes/, Stations/, and any other registered module directories. " +
+                          "This setting resets to false automatically after generation."
         );
 
-        // [ADDED] ChunksPerFrame — tiered sync rate limiter.
-        //         Controls how many ChatMessageServerEvent entities are created
-        //         per frame when draining the SyncQueue for connected clients.
-        //
-        //         Lower values reduce per-frame entity creation cost at the
-        //         expense of longer sync times. Higher values speed up sync
-        //         but increase frame load on connect spikes.
-        //
-        //         At 10 chunks/frame and 60fps:
-        //           ~290 total chunks → ~0.5 seconds to fully sync one client
-        //           With 20 simultaneous connects: 200 entity creates/frame
-        //
-        //         [PERFORMANCE] Reduce this value if you observe frame drops
-        //         during large simultaneous-connect events (e.g. server restart
-        //         when all players reconnect at once).
+        // [PERFORMANCE] Reduce ChunksPerFrame if frame drops occur when many
+        //               players connect simultaneously (e.g. server restart).
+        //               At 10 chunks/frame and 60fps:
+        //               ~290 total chunks → ~0.5 seconds per client sync.
         _chunksPerFrame = config.Bind(
             section:      "Sync",
             key:          "ChunksPerFrame",
@@ -104,12 +95,12 @@ public static class HeartConfig
     }
 
     /// <summary>
-    /// Resets GenerateLocalizationExample to false after the example file is written.
-    /// Called automatically by LocalizationService after generation completes.
+    /// Resets GenerateExampleConfigs to false after generation completes.
+    /// Called automatically by HeartConfigBuilder after all files are written.
     /// </summary>
-    public static void DisableGenerateLocalizationExample()
+    public static void DisableGenerateExampleConfigs()
     {
-        _generateLocalizationExample.Value = false;
-        HeartLogger.Info(LOG_SOURCE, "GenerateLocalizationExample reset to false.");
+        _generateExampleConfigs.Value = false;
+        HeartLogger.Info(LOG_SOURCE, "GenerateExampleConfigs reset to false.");
     }
 }

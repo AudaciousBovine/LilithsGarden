@@ -57,7 +57,7 @@ Heart.OnInitialize():
   1. LocalizationService.Initialize()
        └── Scans all registered directories recursively for *.json
            Heart registers ItemsDir; modules register their own dirs
-           Merges into LocalizationConfig.Overrides (per-field merge)
+           Merges into ItemAppearanceConfig.Overrides (per-field merge)
 
   2. Build baseline TierBlobData[] (empty overrides)
 

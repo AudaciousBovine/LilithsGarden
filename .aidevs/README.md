@@ -46,7 +46,7 @@ BepInEx Load
 World Ready (WarEventRegistrySystem)
   ├─ Heart.OnInitialize()
   │   ├─ PrefabNameResolver init
-  │   ├─ LocalizationConfig init
+  │   ├─ ItemAppearanceConfig init
   │   ├─ Build empty sync payload
   │   ├─ Fire OnInitialized → Cookbook applies changes
   │   ├─ Rebuild payload with overrides

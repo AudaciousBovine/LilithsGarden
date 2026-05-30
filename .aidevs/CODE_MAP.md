@@ -122,15 +122,15 @@
 |------|-------|---------|
 | `PrefabNameResolver.cs` | `PrefabNameResolver` | Scans LilithsMind definitions via reflection. Builds `_nameToGuid`, `_prefabToGuid`, `_guidToName`. Provides `TryResolve()`, `TryResolveName()`. |
 | `HeartConfigBuilder.cs` | `HeartConfigBuilder` | Example config file generation. `GenerateIfRequested()` called by `Heart.OnInitialize()` before `LocalizationService` loads. Writes `Items/example.json` demonstrating all three icon methods. Flag resets to false after generation. Future generation flags for MainQuest/, Spells/ go here. |
-| `LocalizationService.cs` | `LocalizationService` | Central localization loader — **loader only, no file writing**. Multiple registered directories via `RegisterDirectory()`. Each dir scanned recursively for `*.json`, merged alphabetically into `LocalizationConfig`. Supports `Reload()`. |
+| `LocalizationService.cs` | `LocalizationService` | Central localization loader — **loader only, no file writing**. Multiple registered directories via `RegisterDirectory()`. Each dir scanned recursively for `*.json`, merged alphabetically into `ItemAppearanceConfig`. Supports `Reload()`. |
 
 ### Config/
 
 | File | Class | Purpose |
 |------|-------|---------|
-| `HeartConfig.cs` | `HeartConfig` | `DebugLogging` (bool), `ServerName` (string), `GenerateLocalizationExample` (bool). |
+| `HeartConfig.cs` | `HeartConfig` | `DebugLogging` (bool), `ServerName` (string), `GenerateExampleConfigs` (bool — replaces `GenerateLocalizationExample`, triggers all registered module generators), `ChunksPerFrame` (int). |
 | `HeartPathIndex.cs` | `HeartPathIndex` | `Root`, `CoreConfig`, `ItemsDir` (replaces `LocalizationDir`), `ModuleConfig()`, `DataDir()`. |
-| `LocalizationConfig.cs` | `LocalizationConfig` | Pure data surface — `Dictionary<string, ItemAppearanceData>`. Per-field merge via `AddOverride()` (later file wins per field, not per entry). `Clear()`, `MarkLoaded()`. |
+| `ItemAppearanceConfig.cs` | `ItemAppearanceConfig` | Pure data surface — `Dictionary<string, ItemAppearanceData>`. Per-field merge via `AddOverride()` (later file wins per field, not per entry). `Clear()`, `MarkLoaded()`. |
 
 ---
 
@@ -237,7 +237,7 @@
 ### Modified
 - `LilithsMind/Network/ServerSyncPayload.cs` — `DisplayNameOverrides`/`TooltipOverrides` → `ItemAppearanceOverrides: Dictionary<string, ItemAppearanceData>`
 - `LilithsHeart/Config/HeartPathIndex.cs` — `LocalizationDir` → `ItemsDir`
-- `LilithsHeart/Config/LocalizationConfig.cs` — two flat dicts → single `Dictionary<string, ItemAppearanceData>` with per-field merge
+- `LilithsHeart/Config/ItemAppearanceConfig.cs` — two flat dicts → single `Dictionary<string, ItemAppearanceData>` with per-field merge
 - `LilithsHeart/Services/LocalizationService.cs` — registered directories, recursive scan, `EnsureExampleFile` removed (→ `HeartConfigBuilder`)
 - `LilithsHeart/Network/SyncPayloadCache.cs` — `CachedJson` → `TierBlobData[]`, GZip+base64 compression per tier
 - `LilithsSoul/Config/SoulPathIndex.cs` — added `IconsDir`

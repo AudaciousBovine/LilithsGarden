@@ -17,7 +17,7 @@
 | `*Index` | Static collection of values for lookup | `WeaponsIndex`, `HeartPathIndex`, `SoulPathIndex`, `HeartEventIndex` |
 | `*Enum` | Named set of constant values | `EventKind` |
 | `*Registry` | Runtime lookup table populated dynamically | `HeartModuleRegistry`, `ServerRegistry` |
-| `*Config` | Defines settings and writes config files | `HeartConfig`, `SoulConfig`, `LocalizationConfig` |
+| `*Config` | Defines settings and writes config files | `HeartConfig`, `SoulConfig`, `ItemAppearanceConfig` |
 | `*Logger` | Logging utility for console messages | `HeartLogger`, `SoulLogger` |
 | `*Extensions` | Extension methods for commonly used types | `EntityExtensions` |
 | `*Sender` | Sends information over network | `SyncSender` |

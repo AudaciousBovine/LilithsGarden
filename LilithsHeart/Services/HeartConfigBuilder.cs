@@ -5,26 +5,33 @@ using LilithsHeart.Foundation;
 //  HeartConfigBuilder — LilithsHeart
 //  LilithsHeart/Services/HeartConfigBuilder.cs
 //
-//  Generates example config files for Heart and its registered
-//  directories. Called from Heart.OnInitialize() before
-//  LocalizationService.Initialize() loads overrides.
+//  Generates example config files for all installed modules.
+//  Called from Heart.OnInitialize() before LocalizationService
+//  loads, so fresh examples are immediately picked up.
 //
-//  Follows the same pattern as CookbookConfigBuilder — generation
-//  logic is separated from loading logic. LocalizationService
-//  is a loader only; it does not write files.
+//  Registration pattern:
+//  ──────────────────────
+//  Heart registers its own generator at startup.
+//  Child modules register theirs in Load() before OnInitialized
+//  fires so they're included when GenerateIfRequested() runs:
 //
-//  Config flags that trigger generation:
-//  ──────────────────────────────────────
-//  HeartConfig.GenerateLocalizationExample — writes Items/example.json
-//  Each flag resets to false automatically after generation so
-//  the file is only written once unless the admin re-enables it.
+//      HeartConfigBuilder.RegisterGenerator(GenerateCookbookExamples);
 //
-//  Future generation flags (as modules are added):
-//    GenerateQuestExample    → MainQuest/example.json  (Machinations)
-//    GenerateSpellExample    → Spells/example.json     (Grimoire)
+//  GenerateIfRequested() checks HeartConfig.GenerateExampleConfigs
+//  and calls all registered generators if true. The flag resets
+//  to false automatically after all generators run.
 //
-//  [PERFORMANCE] File I/O only occurs when a generation flag is
-//                true — zero cost on normal boots.
+//  Each generator is responsible for:
+//    - Checking if its example file already exists (skip if so)
+//    - Creating its target directory
+//    - Writing the example JSON
+//
+//  [CHANGED] GenerateLocalizationExample → GenerateExampleConfigs.
+//            Single flag now triggers all registered generators,
+//            not just the localization example.
+//
+//  [PERFORMANCE] Zero cost on normal boots — all work gated behind
+//                the GenerateExampleConfigs flag check.
 // ============================================================
 
 namespace LilithsHeart.Services;
@@ -33,29 +40,62 @@ public static class HeartConfigBuilder
 {
     private const string LOG_SOURCE = "LilithsHeart.HeartConfigBuilder";
 
+    // Registered example generators from Heart and child modules.
+    // [PERFORMANCE] Small list — populated once at startup.
+    static readonly List<Action> _generators = [];
+
     // ── Public API ───────────────────────────────────────────
 
     /// <summary>
-    /// Checks all generation flags and writes example files where needed.
-    /// Called once by Heart.OnInitialize() before LocalizationService loads.
+    /// Registers an example file generator.
+    /// Called by Heart core and child modules during Load().
+    /// Each generator should check if its file already exists
+    /// and skip gracefully if so.
+    /// </summary>
+    public static void RegisterGenerator(Action generator)
+    {
+        if (generator != null)
+            _generators.Add(generator);
+    }
+
+    /// <summary>
+    /// Checks HeartConfig.GenerateExampleConfigs and runs all
+    /// registered generators if true. Resets the flag to false
+    /// after all generators complete.
+    /// Called by Heart.OnInitialize() before LocalizationService.
     /// </summary>
     public static void GenerateIfRequested()
     {
-        if (HeartConfig.GenerateLocalizationExample)
+        if (!HeartConfig.GenerateExampleConfigs) return;
+
+        HeartLogger.Info(LOG_SOURCE,
+            $"GenerateExampleConfigs is true — running {_generators.Count} generator(s).");
+
+        foreach (var generator in _generators)
         {
-            GenerateItemsExample();
-            HeartConfig.DisableGenerateLocalizationExample();
+            try
+            {
+                generator();
+            }
+            catch (Exception ex)
+            {
+                HeartLogger.Error(LOG_SOURCE,
+                    $"Generator failed: {ex.Message}");
+            }
         }
+
+        HeartConfig.DisableGenerateExampleConfigs();
     }
 
-    // ── Internal ─────────────────────────────────────────────
+    // ── Built-in generators ───────────────────────────────────
 
     /// <summary>
-    /// Writes Items/example.json demonstrating all three icon methods
-    /// alongside display name and tooltip overrides.
+    /// Generates Items/example.json demonstrating all three icon
+    /// methods alongside display name and tooltip overrides.
+    /// Registered by Heart.OnInitialize() as the core generator.
     /// Skipped if the file already exists.
     /// </summary>
-    static void GenerateItemsExample()
+    public static void GenerateItemsExample()
     {
         var itemsDir    = HeartPathIndex.ItemsDir;
         var examplePath = Path.Combine(itemsDir, "example.json");
@@ -71,7 +111,7 @@ public static class HeartConfigBuilder
 {
   "_readme": "Keys are the prefab Name or Prefab string from LilithsMind PrefabDef entries (e.g. 'BloodEssence' or 'Item_BloodEssence_T01'). All fields are optional — omit any you do not want to change. Files in subdirectories are included automatically (e.g. Items/Currencies/). Files load in full-path alphabetical order — later files win per-field on key conflicts.",
 
-  "_icon_readme": "Icon can be set three ways: (1) a PNG filename resolved from the client's Icons/ folder — e.g. 'vitae.png'; (2) an in-game sprite name from Resources — e.g. 'Icon_BloodOrb'; (3) an https:// URL the client will download and cache to their Icons/ folder — e.g. 'https://example.com/icons/vitae.png'. The client tries local file first, then in-game sprite, then URL.",
+  "_icon_readme": "Icon can be set three ways: (1) a PNG filename resolved from the client's Icons/ folder — e.g. 'vitae.png'; (2) an in-game sprite name from Resources — e.g. 'Icon_BloodOrb'; (3) an https:// URL the client will download and cache to their Icons/ folder.",
 
   "Item_BloodEssence_T01": {
     "_comment": "Example 1: rename + tooltip + local PNG icon (client must have vitae.png in their Icons/ folder)",

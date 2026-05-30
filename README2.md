@@ -43,7 +43,7 @@ Naming Conventions:
     [Config]
         HeartConfig.cs
         HeartPathIndex.cs
-        LocalizationConfig.cs
+        ItemAppearanceConfig.cs
     [Events]
         HeartEventBus.cs
         HeartEventIndex.cs

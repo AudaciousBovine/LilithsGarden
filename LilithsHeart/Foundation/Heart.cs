@@ -18,7 +18,7 @@ namespace LilithsHeart.Foundation;
 //  Lifecycle:
 //  ──────────
 //  1. OnInitialize() fires via WarEventRegistrySystem patch.
-//  2. PrefabNameResolver and LocalizationConfig are initialized.
+//  2. PrefabNameResolver and ItemAppearanceConfig are initialized.
 //  3. A baseline SyncPayloadCache is built (empty overrides).
 //  4. OnInitialized event fires — registered modules apply their
 //     changes and call Register*() to queue overrides.
@@ -79,6 +79,7 @@ public static class Heart
 
         PrefabNameResolver.Initialize();
 
+        HeartConfigBuilder.RegisterGenerator(HeartConfigBuilder.GenerateItemsExample);
         HeartConfigBuilder.GenerateIfRequested();
 
         LocalizationService.RegisterDirectory(HeartPathIndex.ItemsDir);

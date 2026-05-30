@@ -1,8 +1,8 @@
 using LilithsMind.Data;
 
 // ============================================================
-//  LocalizationConfig — LilithsHeart
-//  LilithsHeart/Config/LocalizationConfig.cs
+//  ItemAppearanceConfig — LilithsHeart
+//  LilithsHeart/Config/ItemAppearanceConfig.cs
 //
 //  Pure data surface for all server-defined item appearance
 //  overrides. Holds the merged results of all JSON files loaded
@@ -36,7 +36,7 @@ using LilithsMind.Data;
 
 namespace LilithsHeart.Config;
 
-public static class LocalizationConfig
+public static class ItemAppearanceConfig
 {
     static readonly Dictionary<string, ItemAppearanceData> _overrides = new();
 
