@@ -168,13 +168,9 @@ public static class SyncReceiver
         _clientWorldReady = true;
         _connectionString = connectionString;
 
-        SoulLogger.Info("SyncReceiver", "Step 1: BuildLookupTable");
         LocalizationInjector.BuildLookupTable();
-        SoulLogger.Info("SyncReceiver", "Step 2: BuildNameMap");
         RecipePatcher.BuildNameMap();
-        SoulLogger.Info("SyncReceiver", "Step 3: BuildSpriteMaps");
         IconPatcher.BuildSpriteMaps();
-        SoulLogger.Info("SyncReceiver", "Step 4: TryPreApplyCachedSync");
         TryPreApplyCachedSync(connectionString);
 
         // Drain any tiers that arrived early, in priority order.

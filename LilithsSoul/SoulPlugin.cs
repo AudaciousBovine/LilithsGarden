@@ -34,6 +34,10 @@ public class SoulPlugin : BasePlugin
 
     public override void Load()
     {
+        // [ADDED] Must be first — registers SoulCoroutineHost with IL2CPP
+        // before any coroutine is started. Required by IconDownloader.
+        SoulCoroutineHost.Register();
+
         SoulLogger.Initialize(base.Log);
 
         try

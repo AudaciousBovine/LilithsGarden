@@ -1,6 +1,8 @@
 using BepInEx.Unity.IL2CPP.Utils.Collections;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
+using LilithsSoul.Foundation;
 
 // ============================================================
 //  SoulCoroutineHost — LilithsSoul
@@ -18,17 +20,19 @@ using UnityEngine;
 //  attach it to a persistent GameObject, and use it as the host
 //  for all Soul coroutines.
 //
-//  This is the same pattern used by ZUI's ImageDownloader.
-//
 //  Registration:
 //  ─────────────
 //  ClassInjector.RegisterTypeInIl2Cpp<SoulCoroutineHost>() MUST
 //  be called in SoulPlugin.Load() before any coroutine is started.
-//  The host GameObject is created lazily on first use.
+//
+//  [CHANGED] CreateHost() now uses the non-generic IL2CPP
+//            AddComponent overload via Il2CppType.Of<T>() and
+//            .Cast<T>(). The generic AddComponent<T>() throws
+//            TypeInitializationException in IL2CPP if the type
+//            is not fully resolved at call time.
 //
 //  [PERFORMANCE] One persistent GameObject per Soul session.
-//                Zero per-frame overhead — MonoBehaviour has no
-//                Update() or other tick methods.
+//                Zero per-frame overhead — no Update() or tick.
 // ============================================================
 
 namespace LilithsSoul.Foundation;
@@ -62,7 +66,11 @@ public class SoulCoroutineHost : MonoBehaviour
     {
         var go = new GameObject("SoulCoroutineHost");
         UnityEngine.Object.DontDestroyOnLoad(go);
-        _instance = go.AddComponent<SoulCoroutineHost>();
+
+        // [CHANGED] Use non-generic IL2CPP AddComponent to avoid
+        // TypeInitializationException with generic AddComponent<T>().
+        _instance = go.AddComponent(Il2CppType.Of<SoulCoroutineHost>())
+            .Cast<SoulCoroutineHost>();
 
         SoulLogger.Debug("LilithsSoul.SoulCoroutineHost",
             "Coroutine host created.");
