@@ -325,8 +325,8 @@ public static class ItemsResourcesIndex
         Name    = "BloodCrystal",
         GuidHash = -1913156733,
         Prefab  = "Item_Ingredient_BloodCrystal",
-        NameKey = null,
-        DescKey = null,
+        NameKey = "550eacac-2abc-42c5-aa42-cb8cd3fbb0c1",
+        DescKey = "c9426271-8ef4-44aa-a771-d26c741e7eb0",
     };
 
     public static readonly PrefabDef Item_Ingredient_Emery = new()
