@@ -32,7 +32,7 @@ public class CookbookPlugin : BasePlugin
         var configFile = new ConfigFile(HeartPathIndex.ModuleConfig("LilithsCookbook"), saveOnInit: true);
 
         CookbookConfig.Initialize(configFile);
-        CookbookBuilder.Initialize();
+        CookbookConfigBuilder.Initialize();
 
         HeartModuleRegistry.Register(new HeartModuleData
         {
@@ -53,10 +53,10 @@ public class CookbookPlugin : BasePlugin
 
     static void OnHeartInitialized()
     {
-        CookbookBuilder.GenerateAllRecipesIfRequested();
+        CookbookConfigBuilder.GenerateAllRecipesIfRequested();
 
-        RecipeData  = CookbookLoader.LoadRecipes(CookbookBuilder.RecipesDir);
-        StationData = CookbookLoader.LoadStations(CookbookBuilder.StationsDir);
+        RecipeData  = CookbookLoader.LoadRecipes(CookbookConfigBuilder.RecipesDir);
+        StationData = CookbookLoader.LoadStations(CookbookConfigBuilder.StationsDir);
 
         RecipeSystem.ApplyChanges();
         StationSystem.ApplyChanges();

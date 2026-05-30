@@ -10,51 +10,23 @@ using LilithsHeart.Foundation;
 //  Central service responsible for loading all localization and
 //  appearance overrides across the entire LilithsGarden suite.
 //
-//  [CHANGED] Now supports multiple registered directories instead
-//            of a single hardcoded Localization/ folder. Each module
-//            registers its own directory at startup. LocalizationService
-//            scans all registered directories recursively for *.json
-//            files and merges results into LocalizationConfig.
+//  Supports multiple registered directories — each module calls
+//  RegisterDirectory() to add its own config folder. Heart
+//  registers ItemsDir; future modules register their own:
+//    MainQuest/  — LilithsMachinations
+//    Spells/     — LilithsGrimoire
 //
-//  Registration pattern:
-//  ──────────────────────
-//  Heart.OnInitialize() registers ItemsDir before firing OnInitialized.
-//  Child modules register their own directories in their Load():
+//  Each registered directory is scanned recursively for *.json.
+//  All files sorted by full path alphabetically, merged in order.
+//  Later files win on a per-field basis via LocalizationConfig.AddOverride().
 //
-//      Heart.OnInitialized += () =>
-//          LocalizationService.RegisterDirectory(HeartPathIndex.DataDir("MainQuest"));
+//  [CHANGED] Example file generation removed — moved to HeartConfigBuilder.
+//            LocalizationService is a loader only. HeartConfigBuilder
+//            handles all example/generation concerns, called from
+//            Heart.OnInitialize() before this service loads files.
 //
-//  Current registered directories:
-//    • Items/          — Heart core (display names, tooltips, icons)
-//    • MainQuest/      — LilithsMachinations (future)
-//    • Spells/         — LilithsGrimoire (future)
-//
-//  Scan behaviour:
-//  ────────────────
-//  Each registered directory is scanned with SearchOption.AllDirectories
-//  so admins can organize files into subdirectories freely:
-//      Items/
-//          Currencies/blood-essence.json
-//          Weapons/swords.json
-//          items.json
-//  All files are collected, sorted by full path alphabetically across
-//  all registered directories, then loaded in that order. Later files
-//  win on a per-field basis via LocalizationConfig.AddOverride().
-//
-//  JSON format (combined appearance):
-//  ────────────────────────────────────
-//  {
-//    "_readme": "...",
-//    "Item_BloodEssence_T01": {
-//      "DisplayName": "Vitae",
-//      "Tooltip": "Concentrated life force.",
-//      "Icon": "vitae.png"
-//    }
-//  }
-//  All fields are optional. Non-object values (e.g. _readme) are skipped.
-//
-//  [PERFORMANCE] All files read once at world ready. No file I/O after
-//                initialization unless Reload() is explicitly called.
+//  [PERFORMANCE] All files read once at world ready. No file I/O
+//                after initialization unless Reload() is called.
 //                Per-field merge in LocalizationConfig.AddOverride() is O(1).
 // ============================================================
 
@@ -88,20 +60,14 @@ public static class LocalizationService
     }
 
     /// <summary>
-    /// Creates registered directories, writes the example file on first boot
-    /// if configured, and loads all override files into LocalizationConfig.
-    /// Called once by Heart.OnInitialize().
+    /// Creates registered directories and loads all override files
+    /// into LocalizationConfig.
+    /// Called once by Heart.OnInitialize() after HeartConfigBuilder runs.
     /// </summary>
     public static void Initialize()
     {
         foreach (var dir in _registeredDirectories)
             Directory.CreateDirectory(dir);
-
-        if (HeartConfig.GenerateLocalizationExample)
-        {
-            EnsureExampleFile();
-            HeartConfig.DisableGenerateLocalizationExample();
-        }
 
         Load();
     }
@@ -135,8 +101,8 @@ public static class LocalizationService
         if (files.Length == 0)
         {
             HeartLogger.Info(LOG_SOURCE,
-                "No localization JSON files found in any registered directory. " +
-                "Overrides disabled.");
+                "No localization JSON files found in any registered directory — " +
+                "overrides disabled.");
             LocalizationConfig.MarkLoaded();
             return;
         }
@@ -171,7 +137,7 @@ public static class LocalizationService
 
             foreach (var (key, element) in raw)
             {
-                // Skip non-object values (e.g. _readme string).
+                // Skip non-object values (e.g. _readme, _comment strings).
                 if (element.ValueKind != JsonValueKind.Object) continue;
 
                 string? displayName = null;
@@ -210,41 +176,6 @@ public static class LocalizationService
         {
             HeartLogger.Error(LOG_SOURCE,
                 $"Failed to parse '{Path.GetFileName(filePath)}': {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Writes an example items.json to the Items/ directory on first boot.
-    /// Only runs when HeartConfig.GenerateLocalizationExample is true.
-    /// </summary>
-    static void EnsureExampleFile()
-    {
-        var itemsDir  = HeartPathIndex.ItemsDir;
-        var examplePath = Path.Combine(itemsDir, "example.json");
-        if (File.Exists(examplePath)) return;
-
-        const string example = """
-{
-  "_readme": "Keys are the prefab Name or Prefab string from LilithsMind PrefabDef entries (e.g. 'BloodEssence' or 'Item_BloodEssence_T01'). All fields are optional — omit any you do not want to change. Icon can be a local PNG filename (resolved from Icons/ folder on each client), an in-game sprite name, or an https:// URL. Files in subdirectories are included automatically. Files load in full-path alphabetical order — later files win per field on key conflicts.",
-  "Item_BloodEssence_T01": {
-    "DisplayName": "Vitae",
-    "Tooltip": "Concentrated life force, harvested from the living.",
-    "Icon": "vitae.png"
-  }
-}
-""";
-
-        try
-        {
-            Directory.CreateDirectory(itemsDir);
-            File.WriteAllText(examplePath, example);
-            HeartLogger.Info(LOG_SOURCE,
-                $"Created example file at '{examplePath}'.");
-        }
-        catch (Exception ex)
-        {
-            HeartLogger.Warning(LOG_SOURCE,
-                $"Could not write example file: {ex.Message}");
         }
     }
 }

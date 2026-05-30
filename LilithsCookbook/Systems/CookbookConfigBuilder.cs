@@ -11,12 +11,12 @@ using LilithsCookbook.Data;
 namespace LilithsCookbook.Systems;
 
 // ============================================================
-//  CookbookBuilder — LilithsCookbook
+//  CookbookConfigBuilder — LilithsCookbook
 //
 //  Generates JSON config files from ECS data and writes
 //  example files for admins.
 //
-//  [CHANGED] Renamed from CookbookGenerator → CookbookBuilder
+//  [CHANGED] Renamed from CookbookGenerator → CookbookConfigBuilder
 //            to match the Builder suffix naming convention.
 //
 //  [CHANGED] RecipeEntry → RecipeEntryData, StationEntry →
@@ -32,9 +32,9 @@ namespace LilithsCookbook.Systems;
 //                No per-frame cost.
 // ============================================================
 
-public static class CookbookBuilder
+public static class CookbookConfigBuilder
 {
-    private const string LOG_SOURCE = "LilithsCookbook.CookbookBuilder";
+    private const string LOG_SOURCE = "LilithsCookbook.CookbookConfigBuilder";
 
     public static readonly string RecipesDir  = HeartPathIndex.DataDir("Recipes");
     public static readonly string StationsDir = HeartPathIndex.DataDir("Stations");

@@ -121,7 +121,8 @@
 | File | Class | Purpose |
 |------|-------|---------|
 | `PrefabNameResolver.cs` | `PrefabNameResolver` | Scans LilithsMind definitions via reflection. Builds `_nameToGuid`, `_prefabToGuid`, `_guidToName`. Provides `TryResolve()`, `TryResolveName()`. |
-| `LocalizationService.cs` | `LocalizationService` | Central localization loader. Multiple registered directories via `RegisterDirectory()`. Each dir scanned recursively for `*.json`, merged alphabetically into `LocalizationConfig`. Supports `Reload()`. Heart registers `ItemsDir`; future modules register their own dirs (MainQuest/, Spells/, etc.). |
+| `HeartConfigBuilder.cs` | `HeartConfigBuilder` | Example config file generation. `GenerateIfRequested()` called by `Heart.OnInitialize()` before `LocalizationService` loads. Writes `Items/example.json` demonstrating all three icon methods. Flag resets to false after generation. Future generation flags for MainQuest/, Spells/ go here. |
+| `LocalizationService.cs` | `LocalizationService` | Central localization loader — **loader only, no file writing**. Multiple registered directories via `RegisterDirectory()`. Each dir scanned recursively for `*.json`, merged alphabetically into `LocalizationConfig`. Supports `Reload()`. |
 
 ### Config/
 
@@ -149,7 +150,7 @@
 | `RecipeSystem.cs` | `RecipeSystem` | Applies recipe changes to server ECS. Builds `LilithRecipeData` overrides for Soul sync. |
 | `StationSystem.cs` | `StationSystem` | Two-pass: patch prefab entities, then patch live User + placed station entities after `RegisterGameData()`. |
 | `CookbookLoader.cs` | `CookbookLoader` | Reads and merges `*.json` from Recipes/ and Stations/. Later files win. |
-| `CookbookBuilder.cs` | `CookbookBuilder` | Example config generation. Vanilla recipe dump if `GenerateAllRecipes` enabled. |
+| `CookbookConfigBuilder.cs` | `CookbookConfigBuilder` | Example config generation. Vanilla recipe dump if `GenerateAllRecipes` enabled. Renamed from `CookbookBuilder` to match `*ConfigBuilder` convention. |
 
 ### Data/
 
@@ -214,3 +215,34 @@
 |------|-------|---------|
 | `SoulConfig.cs` | `SoulConfig` | `DebugLogging` (bool). |
 | `SoulPathIndex.cs` | `SoulPathIndex` | `Root`, `CoreConfig`, `IconsDir` (Icons/ for PNG files + URL cache), `ServerDir()`, `SyncFile()`. |
+
+---
+
+## Changelog (this session)
+
+### Renamed
+- `CookbookBuilder` → `CookbookConfigBuilder` — matches `*ConfigBuilder` convention
+
+### Added
+- `LilithsMind/Data/ItemAppearanceData.cs` — `ItemAppearanceData` DTO
+- `LilithsHeart/Services/HeartConfigBuilder.cs` — `HeartConfigBuilder` — example config generation, extracted from `LocalizationService`
+- `LilithsHeart/Network/SyncTierEnum.cs` — `SyncTierEnum` — 5 priority tiers
+- `LilithsHeart/Network/TierBlobData.cs` — `TierBlobData` — pre-built chunk data per tier
+- `LilithsHeart/Network/SyncQueue.cs` — `SyncQueue` — controlled rate delivery queue
+- `LilithsHeart/Patches/SchedulerPatch.cs` — `SchedulerPatch` — per-frame queue drain
+- `LilithsSoul/Foundation/SoulCoroutineHost.cs` — `SoulCoroutineHost` — IL2CPP coroutine host
+- `LilithsSoul/Services/IconPatcher.cs` — `IconPatcher` — icon override application
+- `LilithsSoul/Services/IconDownloader.cs` — `IconDownloader` — https:// URL download + cache
+
+### Modified
+- `LilithsMind/Network/ServerSyncPayload.cs` — `DisplayNameOverrides`/`TooltipOverrides` → `ItemAppearanceOverrides: Dictionary<string, ItemAppearanceData>`
+- `LilithsHeart/Config/HeartPathIndex.cs` — `LocalizationDir` → `ItemsDir`
+- `LilithsHeart/Config/LocalizationConfig.cs` — two flat dicts → single `Dictionary<string, ItemAppearanceData>` with per-field merge
+- `LilithsHeart/Services/LocalizationService.cs` — registered directories, recursive scan, `EnsureExampleFile` removed (→ `HeartConfigBuilder`)
+- `LilithsHeart/Network/SyncPayloadCache.cs` — `CachedJson` → `TierBlobData[]`, GZip+base64 compression per tier
+- `LilithsSoul/Config/SoulPathIndex.cs` — added `IconsDir`
+- `LilithsSoul/Services/LocalizationInjector.cs` — reads from `ItemAppearanceOverrides`
+- `LilithsSoul/Network/SyncReceiver.cs` — added `IconPatcher` calls
+- `LilithsSoul/SoulPlugin.cs` — added `SoulCoroutineHost.Register()`
+- `LilithsHeart/Foundation/Heart.cs` — added `HeartConfigBuilder.GenerateIfRequested()`
+- `LilithsCookbook/Services/CookbookConfigBuilder.cs` — renamed from `CookbookBuilder`

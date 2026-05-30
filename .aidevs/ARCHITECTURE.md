@@ -70,7 +70,7 @@ InitializationPatch.Postfix()
         │
         ├── Fire OnInitialized event
         │     └── CookbookPlugin.OnHeartInitialized()
-        │           ├── CookbookBuilder.GenerateAllRecipesIfRequested()
+        │           ├── CookbookConfigBuilder.GenerateAllRecipesIfRequested()
         │           ├── CookbookLoader.LoadRecipes() / LoadStations()
         │           ├── RecipeSystem.ApplyChanges()
         │           └── StationSystem.ApplyChanges()

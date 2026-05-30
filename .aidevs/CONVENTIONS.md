@@ -9,7 +9,7 @@
 | `*Injector` | Injects values into game systems outside ECS | `LocalizationInjector` |
 | `*Service` | Static class that performs work | `LocalizationService` |
 | `*Queue` | Holds work items done at controlled rate | — |
-| `*Builder` | Builds complex objects/data into manageable structures | `CookbookBuilder` |
+| `*Builder` | Builds complex objects/data into manageable structures | `CookbookConfigBuilder` |
 | `*Cache` | Stores built data, rebuilt only when values change | `SyncPayloadCache` |
 | `*Data` | Runtime container holding data values | `LilithRecipeData`, `CookbookItemData` |
 | `*Payload` | Envelope of data for sending over network | `ServerSyncPayload`, `ServerEventPayload` |

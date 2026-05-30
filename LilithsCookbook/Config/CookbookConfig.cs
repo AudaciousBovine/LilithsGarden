@@ -36,7 +36,7 @@ public static class CookbookConfig
 
     /// <summary>
     /// Resets GenerateAllRecipes to false in the config file after generation completes.
-    /// Called automatically by CookbookBuilder after all-recipes.json is written.
+    /// Called automatically by CookbookConfigBuilder after all-recipes.json is written.
     /// </summary>
     public static void DisableGenerateAllRecipes()
     {

@@ -78,6 +78,9 @@ public static class Heart
         HeartLogger.Info(LOG_SOURCE, "Heart initializing...");
 
         PrefabNameResolver.Initialize();
+
+        HeartConfigBuilder.GenerateIfRequested();
+
         LocalizationService.Initialize();
 
         _serverIdentity = ResolveServerIdentity();

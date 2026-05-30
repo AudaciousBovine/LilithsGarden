@@ -95,7 +95,7 @@ Naming Conventions:
         CookbookRecipeData.cs
         CookbookStationData.cs
     [Systems]
-        CookbookBuilder.cs
+        CookbookConfigBuilder.cs
         CookbookLoader.cs
         RecipeSystem.cs
         StationSystem.cs
