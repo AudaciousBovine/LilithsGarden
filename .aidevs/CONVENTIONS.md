@@ -141,12 +141,20 @@ A LilithsHeart child module must:
 5. Fully qualify `MyPluginInfo` as `YourModule.MyPluginInfo` (namespace conflict with Heart)
 
 ## Client Payload Application Order (FIXED — DO NOT REORDER)
-
-The `ApplyPayload()` method in `SyncReceiver` has a strict order:
-
-1. `LocalizationInjector.Inject(payload)` — must run first (patches localization table)
-2. `RecipePatcher.Apply(payload.RecipeOverrides)` — patches recipe data
-3. `RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides)` — patches station buffers
-4. `RecipePatcher.ApplyPlayerRecipes(...)` — patches player buffer last
-
-This order is required because later steps depend on `_localizedStrings` and `_nameToGuid` being populated by earlier steps.
+ 
+`SyncReceiver` applies each tier independently as its `[[LG:end:T:CKSUM]]`
+sentinel arrives (Critical before High before Normal). The disk-cached
+pre-apply path runs the same steps in one shot via `ApplyPayload()`.
+ 
+Within a payload the order is fixed:
+ 
+1. `LocalizationInjector.Inject(payload)` — text into `_LocalizedStrings`
+2. `IconPatcher.ClearPrevious()` — restore original icons
+3. `IconPatcher.Apply(payload)` — sprites into `ManagedItemData.Icon`
+4. `RecipePatcher.Apply(payload.RecipeOverrides)` — recipe ECS data
+5. `RecipePatcher.ApplyStationRecipes(payload.StationRecipeOverrides)` — station buffers
+6. `RecipePatcher.ApplyPlayerRecipes(...)` — player buffer last
+Lookup tables (`_nameToGuid`, localization/sprite maps) are built once in
+`NotifyWorldReady()`; the steps above only read them. The fixed ordering
+ensures each patcher's `ClearPrevious()` runs before its `Apply()`, and that
+localization and icons are in place before the crafting UI reads them.

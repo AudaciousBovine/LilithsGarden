@@ -21,6 +21,11 @@ namespace LilithsHeart.Config;
 // [ADDED] ChunksPerFrame — controls the tiered sync send rate.
 //         Limits how many chat message entities are created per frame
 //         when sending sync payloads to connecting clients.
+//
+// [CHANGED] Corrected the example-file path in GenerateLocalizationExample's
+//           summary and config description from the old Localization/ folder
+//           to Items/. The writer (LocalizationService.EnsureExampleFile)
+//           has always targeted Items/ — only these comments were stale.
 public static class HeartConfig
 {
     private const string LOG_SOURCE = "LilithsHeart.HeartConfig";
@@ -36,7 +41,7 @@ public static class HeartConfig
 
     /// <summary>
     /// When true, LocalizationService writes an example localization JSON
-    /// to BepInEx/config/LilithsHeart/Localization/example.json on next boot.
+    /// to BepInEx/config/LilithsHeart/Items/example.json on next boot.
     /// Resets to false automatically after the file is written.
     /// </summary>
     public static bool GenerateLocalizationExample => _generateLocalizationExample.Value;
@@ -64,7 +69,7 @@ public static class HeartConfig
             key:          "GenerateLocalizationExample",
             defaultValue: false,
             description:  "When set to true, generates an example localization JSON file at " +
-                          "BepInEx/config/LilithsHeart/Localization/example.json on next boot. " +
+                          "BepInEx/config/LilithsHeart/Items/example.json on next boot. " +
                           "Use this as a starting point for renaming items, spells, and other " +
                           "game objects. This setting resets to false automatically after generation."
         );

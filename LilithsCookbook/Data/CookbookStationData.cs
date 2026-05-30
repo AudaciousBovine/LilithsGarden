@@ -6,7 +6,7 @@
 //  Deserialized from *.json files in:
 //      BepInEx/config/LilithsHeart/Stations/
 //
-//  [CHANGED] StationEntryData renamed to StationEntryData to follow
+//  [CHANGED] StationEntry renamed to StationEntryData to follow
 //            the suite Data suffix naming convention.
 //
 //  [PERFORMANCE] Plain DTOs — no ECS types, no Unity dependencies.

@@ -2,101 +2,70 @@
 //  SyncTierEnum — LilithsMind
 //  LilithsMind/Network/SyncTierEnum.cs
 //
-//  Defines the priority tiers used by the Heart→Soul sync
-//  transport. Tiers control the order in which payload sections
-//  are sent to connecting clients.
+//  Priority tiers for the Heart→Soul sync payload delivery
+//  system. Lower numeric value = higher priority = sent first.
 //
-//  Design:
-//  ───────
-//  Heart builds one compressed blob per tier at startup.
-//  On client connect, tiers are sent sequentially — Critical
-//  first, Low last. Each tier is an independent compressed
-//  payload with its own begin/end sentinels and checksum.
+//  This is a shared wire contract: Heart stamps the tier's
+//  integer value into every sentinel ([[LG:begin:T:...]],
+//  [[LG:T:NNNN]], [[LG:end:T:...]]) and Soul reads it back to
+//  route each decoded slice. It therefore belongs in LilithsMind
+//  alongside the other shared DTOs, not in either plugin.
 //
-//  Soul applies each tier as it arrives, independently of
-//  the others. Critical data (item names) is applied during
-//  the loading screen. Lower tiers arrive after the player
-//  is in the world.
+//  [CHANGED] Consolidated into LilithsMind. Previously the live
+//            enum lived in LilithsHeart/Network/SyncTierEnum.cs
+//            (server-only), forcing LilithsSoul — which cannot
+//            reference Heart — to duplicate the values as local
+//            constants. That Heart file is now deleted and both
+//            sides reference this single definition.
 //
-//  TierAssignments:
-//  ─────────────────
-//  Change a single const to move a data section between tiers.
-//  No protocol changes, no Soul-side changes needed — the tier
-//  number in the sentinel handles routing automatically.
+//  [CHANGED] Removed the divergent, unused SyncTier enum and
+//            TierAssignments class that previously occupied this
+//            file. They were 1-based, lacked Background, and were
+//            never referenced by the transport (which has always
+//            used the 0-based values below). TierAssignments had
+//            also drifted stale (PlayerRecipes mis-tiered as High;
+//            referenced the retired LilithsVision). Kept the
+//            0-based values so no sentinel on the wire changes.
 //
-//  As new modules add payload sections, they claim a const here.
-//  This is the single source of truth for tier assignment.
+//  Tier assignment rationale:
+//  ───────────────────────────
+//  Critical   — ItemAppearanceOverrides (display names, tooltips,
+//               icons). Must arrive before the inventory UI builds
+//               or the player sees vanilla names briefly.
+//               Smallest data volume — typically under 5KB.
+//
+//  High       — RecipeOverrides + StationRecipeOverrides.
+//               Crafting UI is visible shortly after login.
+//               Medium data volume.
+//
+//  Normal     — PlayerRecipesToAdd + PlayerRecipesToRemove.
+//               Player recipe unlocks are less time-sensitive —
+//               a brief delay before they appear is acceptable.
+//
+//  Low        — Reserved for future modules: quest names/text
+//               (LilithsMachinations), spell names/tooltips
+//               (LilithsGrimoire). Background apply acceptable.
+//
+//  Background — Reserved for large data sets with no urgency:
+//               horse breeding tables (LilithsMenagerie),
+//               bounty data (LilithsBounty), treasury config
+//               (LilithsTreasury). Sent last, applied lazily.
+//
+//  [PERFORMANCE] Tiers are processed in ascending numeric order
+//                by SyncSender. Critical arrives and is applied
+//                by Soul before High chunks even begin sending.
+//                Each tier is independent — Soul applies each on
+//                its own end sentinel without waiting for later
+//                tiers to arrive.
 // ============================================================
 
 namespace LilithsMind.Network;
 
-/// <summary>
-/// Priority tier for a sync payload section.
-/// Lower numbers are sent first and applied earlier.
-/// </summary>
-public enum SyncTier
+public enum SyncTierEnum
 {
-    /// <summary>
-    /// Sent immediately on connect, during the loading screen.
-    /// For data the player sees the moment they enter the world.
-    /// </summary>
-    Critical = 1,
-
-    /// <summary>
-    /// Sent immediately after Critical completes.
-    /// For data visible at the first crafting station.
-    /// </summary>
-    High = 2,
-
-    /// <summary>
-    /// Sent after a short delay post-connect.
-    /// For data the player reaches after settling in.
-    /// </summary>
-    Normal = 3,
-
-    /// <summary>
-    /// Sent in the background, lowest priority.
-    /// For cosmetic or late-game data.
-    /// </summary>
-    Low = 4,
-}
-
-/// <summary>
-/// Single source of truth for which tier each payload section belongs to.
-/// Change a single const here to move a section between tiers — no other
-/// files need updating.
-///
-/// When adding a new module payload section, claim a const here first.
-/// </summary>
-public static class TierAssignments
-{
-    // ── LilithsHeart core ────────────────────────────────────
-    // Visible the moment the player opens inventory or UI.
-
-    /// <summary>Item display name overrides — visible immediately in inventory.</summary>
-    public const SyncTier ItemNames    = SyncTier.Critical;
-
-    /// <summary>Item tooltip overrides — visible immediately on hover.</summary>
-    public const SyncTier ItemTooltips = SyncTier.Critical;
-
-    // ── LilithsCookbook ──────────────────────────────────────
-    // Visible when the player opens a crafting station.
-
-    /// <summary>Recipe ingredient/output/duration overrides.</summary>
-    public const SyncTier RecipeData     = SyncTier.High;
-
-    /// <summary>Station recipe list additions and removals.</summary>
-    public const SyncTier StationRecipes = SyncTier.High;
-
-    /// <summary>Player crafting menu recipe additions and removals.</summary>
-    public const SyncTier PlayerRecipes  = SyncTier.High;
-
-    // ── Future modules ───────────────────────────────────────
-    // Claim entries here as modules are built.
-    //
-    // LilithsGrimoire  — spell/buff names and tooltips  → Normal
-    // LilithsArchitects — blueprint requirements         → Normal
-    // LilithsAdversaries — unit names and tooltips       → Normal
-    // LilithsMachinations — quest text                   → Low
-    // LilithsVision — icon override names                → Low
+    Critical   = 0,
+    High       = 1,
+    Normal     = 2,
+    Low        = 3,
+    Background = 4,
 }

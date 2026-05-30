@@ -1,3 +1,5 @@
+using LilithsMind.Network;
+
 // ============================================================
 //  TierBlobData — LilithsHeart
 //  LilithsHeart/Network/TierBlobData.cs
@@ -18,6 +20,11 @@
 //  Checksum   — first 8 hex chars of SHA256 over the compressed
 //               payload for this tier. Soul verifies on receipt
 //               to detect truncated or corrupted transmissions.
+//
+//  [CHANGED] Added `using LilithsMind.Network;` — SyncTierEnum was
+//            relocated from LilithsHeart.Network to LilithsMind.Network
+//            so the receiver (Soul) can share the same definition.
+//            No logic change; only the type's namespace moved.
 //
 //  [PERFORMANCE] Immutable after construction — safe to read from
 //                multiple threads (SchedulerPatch drain loop).
