@@ -194,10 +194,9 @@ public static class IconPatcher
                 var guid = new PrefabGUID(def.GuidHash);
 
                 // Prefab is non-nullable string — assign directly.
-                _nameToPrefabGuid[def.Prefab] = guid;
+                if (!string.IsNullOrEmpty(def.Prefab))
+                    _nameToPrefabGuid[def.Prefab] = guid;
 
-                // [CHANGED] Name is nullable string? — guard with IsNullOrEmpty
-                // to prevent ArgumentNullException in Dictionary on first boot.
                 if (!string.IsNullOrEmpty(def.Name))
                     _nameToPrefabGuid[def.Name] = guid;
 

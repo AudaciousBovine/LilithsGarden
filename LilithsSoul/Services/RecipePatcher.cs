@@ -101,7 +101,7 @@ public static class RecipePatcher
             foreach (var field in fields)
             {
                 var def = (LilithsMind.Prefabs.PrefabDef)field.GetValue(null)!;
-                if (def.Name is not null)
+                if (!string.IsNullOrEmpty(def.Name))
                 {
                     var guid = new PrefabGUID(def.GuidHash);
                     _nameToGuid[def.Name] = guid;

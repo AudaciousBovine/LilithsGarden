@@ -168,13 +168,13 @@ public static class SyncReceiver
         _clientWorldReady = true;
         _connectionString = connectionString;
 
-        // Build all lookup tables now that game data is available.
+        SoulLogger.Info("SyncReceiver", "Step 1: BuildLookupTable");
         LocalizationInjector.BuildLookupTable();
+        SoulLogger.Info("SyncReceiver", "Step 2: BuildNameMap");
         RecipePatcher.BuildNameMap();
-
-        // IconPatcher needs world ready — Resources.FindObjectsOfTypeAll<Sprite>().
+        SoulLogger.Info("SyncReceiver", "Step 3: BuildSpriteMaps");
         IconPatcher.BuildSpriteMaps();
-
+        SoulLogger.Info("SyncReceiver", "Step 4: TryPreApplyCachedSync");
         TryPreApplyCachedSync(connectionString);
 
         // Drain any tiers that arrived early, in priority order.

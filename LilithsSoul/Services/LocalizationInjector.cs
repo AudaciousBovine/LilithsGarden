@@ -100,26 +100,20 @@ public static class LocalizationInjector
                 if (def.NameKey is not null)
                 {
                     var nameGuid = ParseAssetGuid(def.NameKey);
-
-                    // [CHANGED] Use IsNullOrEmpty instead of is not null —
-                    // Name is a nullable string? and could be empty string.
-                    // Null or empty keys cause ArgumentNullException in Dictionary.
-                    _nameToNameGuid[def.Prefab] = nameGuid;
+                    if (!string.IsNullOrEmpty(def.Prefab))
+                        _nameToNameGuid[def.Prefab] = nameGuid;
                     if (!string.IsNullOrEmpty(def.Name))
                         _nameToNameGuid[def.Name] = nameGuid;
-
                     nameCount++;
                 }
 
                 if (def.DescKey is not null)
                 {
                     var descGuid = ParseAssetGuid(def.DescKey);
-
-                    // [CHANGED] Same guard as above for DescKey entries.
-                    _nameToDescGuid[def.Prefab] = descGuid;
+                    if (!string.IsNullOrEmpty(def.Prefab))
+                        _nameToDescGuid[def.Prefab] = descGuid;
                     if (!string.IsNullOrEmpty(def.Name))
                         _nameToDescGuid[def.Name] = descGuid;
-
                     descCount++;
                 }
             }
